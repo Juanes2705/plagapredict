@@ -18,5 +18,14 @@ service cloud.firestore {
         (request.auth.uid == resource.data.uid_reportador ||
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
     }
+
+    // Colección "geocercas" (HU-15):
+    //   - Leer: cualquier usuario autenticado (para ver zonas en el mapa)
+    //   - Crear/Editar/Eliminar: solo administradores
+    match /geocercas/{geoId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
   }
 }

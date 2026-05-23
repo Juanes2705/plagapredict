@@ -1,8 +1,18 @@
 // HU-06: Panel Admin — Tabla de reportes en tiempo real desde Firestore
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, addDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import Sidebar from '../components/Sidebar'
+
+const SEED_REPORTES = [
+  { plaga: 'Mosca del mediterráneo', finca: 'Finca La Esperanza',  nivel: 'alto',  lat: 3.8801, lng: -76.3000, temp_c: 27, humedad: 72, viento_kmh: 14, viento_dir: 45,  email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Trips de la cebolla',    finca: 'Finca El Paraíso',    nivel: 'medio', lat: 3.9200, lng: -76.2800, temp_c: 25, humedad: 80, viento_kmh: 8,  viento_dir: 90,  email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Áfidos / Pulgones',      finca: 'Finca Santa Rosa',    nivel: 'bajo',  lat: 3.8500, lng: -76.3300, temp_c: 24, humedad: 85, viento_kmh: 6,  viento_dir: 180, email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Mosca del mediterráneo', finca: 'Finca Los Álamos',    nivel: 'alto',  lat: 3.9000, lng: -76.3500, temp_c: 28, humedad: 68, viento_kmh: 18, viento_dir: 30,  email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Gusano cogollero',       finca: 'Hacienda San Pedro',  nivel: 'medio', lat: 3.8300, lng: -76.2500, temp_c: 26, humedad: 75, viento_kmh: 12, viento_dir: 270, email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Ácaro rojo',             finca: 'Finca Bella Vista',   nivel: 'alto',  lat: 3.8650, lng: -76.3150, temp_c: 29, humedad: 65, viento_kmh: 20, viento_dir: 60,  email_reportador: 'campo@plagapredict.com' },
+  { plaga: 'Chinche de encaje',      finca: 'Hacienda El Roble',   nivel: 'bajo',  lat: 3.9100, lng: -76.3400, temp_c: 23, humedad: 88, viento_kmh: 5,  viento_dir: 135, email_reportador: 'campo@plagapredict.com' },
+]
 
 const nivelBadge = {
   alto:  'bg-red-500/20 text-red-400 border border-red-500/30',
@@ -11,8 +21,34 @@ const nivelBadge = {
 }
 
 export default function AdminPanel() {
-  const [reportes, setReportes] = useState([])
-  const [filtro, setFiltro]     = useState('')
+  const [reportes, setReportes]   = useState([])
+  const [filtro, setFiltro]       = useState('')
+  const [seeding, setSeeding]     = useState(false)
+  const [seedDone, setSeedDone]   = useState(false)
+
+  const handleSeed = async () => {
+    setSeeding(true)
+    try {
+      const col = collection(db, 'reportes')
+      // Inserta reportes en fechas distintas de los últimos 7 días
+      for (let i = 0; i < SEED_REPORTES.length; i++) {
+        const diasAtras = i
+        const fecha = new Date()
+        fecha.setDate(fecha.getDate() - diasAtras)
+        await addDoc(col, {
+          ...SEED_REPORTES[i],
+          uid_reportador: 'seed',
+          precision_m: 10,
+          descripcion: '',
+          fecha: Timestamp.fromDate(fecha),
+        })
+      }
+      setSeedDone(true)
+    } catch (e) {
+      console.error(e)
+    }
+    setSeeding(false)
+  }
 
   useEffect(() => {
     const q = query(collection(db, 'reportes'), orderBy('fecha', 'desc'))
@@ -36,9 +72,23 @@ export default function AdminPanel() {
       <Sidebar />
 
       <main className="flex-1 overflow-y-auto p-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-white mb-1">Todos los Reportes</h2>
-          <p className="text-[#8b949e] text-sm">Avistamientos registrados desde campo.</p>
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-white mb-1">Todos los Reportes</h2>
+            <p className="text-[#8b949e] text-sm">Avistamientos registrados desde campo.</p>
+          </div>
+          {/* Botón de datos de prueba — solo para desarrollo */}
+          {!seedDone ? (
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="flex items-center gap-2 px-4 py-2 bg-[#161b22] border border-[#30363d] hover:border-[#484f58] text-[#8b949e] hover:text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+            >
+              {seeding ? '⏳ Cargando...' : '🧪 Cargar datos de prueba'}
+            </button>
+          ) : (
+            <span className="text-green-400 text-xs flex items-center gap-1">✓ Datos cargados</span>
+          )}
         </div>
 
         {/* Contadores */}
