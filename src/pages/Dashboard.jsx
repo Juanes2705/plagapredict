@@ -14,6 +14,7 @@ import L from 'leaflet'
 import Sidebar from '../components/Sidebar'
 import RiskConeLayer from '../components/RiskConeLayer'
 import AlertPanel from '../components/AlertPanel'
+import TimeSlider from '../components/TimeSlider'
 import { fetchWeather, windDirLabel } from '../services/weatherService'
 import { detectarColisiones } from '../utils/collisionDetection'
 import { useAuth } from '../context/AuthContext'
@@ -97,12 +98,15 @@ export default function Dashboard() {
   const [filtroPlaga, setFiltroPlaga] = useState('')
   const [filtroNivel, setFiltroNivel] = useState('')
   const [showCones,   setShowCones]   = useState(true)  // HU-14 toggle
+  const [diasSlider,  setDiasSlider]  = useState(30)    // HU-19 slider temporal
 
   // --- geocercas draw (HU-15) ---
   const [drawMode,      setDrawMode]      = useState(false)
   const [draftPoints,   setDraftPoints]   = useState([])
   const [nombreGeo,     setNombreGeo]     = useState('')
   const [showNombreBox, setShowNombreBox] = useState(false)
+  const [savingGeo,     setSavingGeo]     = useState(false)
+  const [geoError,      setGeoError]      = useState('')
 
   // --- alertas (HU-17) ---
   const [colisiones,   setColisiones]   = useState([])
@@ -115,9 +119,17 @@ export default function Dashboard() {
   }, [])
 
   // Cargar geocercas en tiempo real (HU-15)
+  // Firestore no soporta arrays anidados → se guardan como {lat,lng} y se convierten al leer
   useEffect(() => {
     return onSnapshot(collection(db, 'geocercas'), snap =>
-      setGeocercas(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setGeocercas(snap.docs.map(d => {
+        const data = d.data()
+        return {
+          id: d.id,
+          ...data,
+          coords: data.coords?.map(p => [p.lat, p.lng]) ?? [],
+        }
+      }))
     )
   }, [])
 
@@ -147,12 +159,19 @@ export default function Dashboard() {
     { label: 'Zonas en Riesgo',    value: zonasEnRiesgo,    color: 'text-yellow-400', icon: '📍' },
   ]
 
-  // HU-12: filtros
-  const reportesFiltrados = reportes.filter(r =>
-    r.lat != null && r.lng != null &&
-    (!filtroPlaga || r.plaga === filtroPlaga) &&
-    (!filtroNivel || r.nivel === filtroNivel)
-  )
+  // HU-12 + HU-19: filtros (nivel, plaga, temporal)
+  const fechaCorte = new Date()
+  fechaCorte.setDate(fechaCorte.getDate() - diasSlider)
+  const fechaCorteMs = fechaCorte.getTime()
+
+  const reportesFiltrados = reportes.filter(r => {
+    if (r.lat == null || r.lng == null) return false
+    if (filtroPlaga && r.plaga !== filtroPlaga) return false
+    if (filtroNivel && r.nivel !== filtroNivel) return false
+    const f = r.fecha?.toDate?.() ?? (r.fecha instanceof Date ? r.fecha : null)
+    if (f && f.getTime() < fechaCorteMs) return false
+    return true
+  })
   const plagasUnicas = [...new Set(reportes.map(r => r.plaga).filter(Boolean))]
   const hayFiltro    = filtroPlaga || filtroNivel
 
@@ -166,21 +185,37 @@ export default function Dashboard() {
     setDraftPoints([])
     setNombreGeo('')
     setShowNombreBox(false)
+    setGeoError('')
+    setSavingGeo(false)
   }
 
   const finalizarDibujo = () => {
     if (draftPoints.length < 3) return
+    setGeoError('')
     setShowNombreBox(true)
   }
 
   const guardarGeocerca = async () => {
     if (draftPoints.length < 3) return
-    await addDoc(collection(db, 'geocercas'), {
-      nombre:    nombreGeo.trim() || 'Geocerca sin nombre',
-      coords:    draftPoints,
-      creadoEn:  serverTimestamp(),
-    })
-    cancelarDibujo()
+    setSavingGeo(true)
+    setGeoError('')
+    try {
+      // Convertir [[lat,lng],...] → [{lat,lng},...] porque Firestore no soporta arrays anidados
+      await addDoc(collection(db, 'geocercas'), {
+        nombre:   nombreGeo.trim() || 'Geocerca sin nombre',
+        coords:   draftPoints.map(([lat, lng]) => ({ lat, lng })),
+        creadoEn: serverTimestamp(),
+      })
+      cancelarDibujo()
+    } catch (err) {
+      console.error('Error al guardar geocerca:', err)
+      if (err.code === 'permission-denied') {
+        setGeoError('Sin permisos. Publica las reglas en Firebase Console y verifica que tu usuario tiene rol "admin" en Firestore.')
+      } else {
+        setGeoError(`Error: ${err.message}`)
+      }
+      setSavingGeo(false)
+    }
   }
 
   const eliminarGeocerca = async (id) => {
@@ -315,32 +350,45 @@ export default function Dashboard() {
 
               {/* Modal nombre geocerca */}
               {showNombreBox && (
-                <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
-                  <span className="text-blue-400 text-xs">📐 Nombre de la geocerca:</span>
-                  <input
-                    autoFocus
-                    value={nombreGeo}
-                    onChange={e => setNombreGeo(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && guardarGeocerca()}
-                    placeholder="Ej: Lote Norte – Finca El Paraíso"
-                    className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-400"
-                  />
-                  <button
-                    onClick={guardarGeocerca}
-                    className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-lg"
-                  >
-                    Guardar
-                  </button>
-                  <button
-                    onClick={cancelarDibujo}
-                    className="text-[#484f58] hover:text-red-400 text-xs"
-                  >
-                    Cancelar
-                  </button>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2">
+                    <span className="text-blue-400 text-xs shrink-0">📐 Nombre:</span>
+                    <input
+                      autoFocus
+                      value={nombreGeo}
+                      onChange={e => setNombreGeo(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !savingGeo && guardarGeocerca()}
+                      placeholder="Ej: Lote Norte – Finca El Paraíso"
+                      disabled={savingGeo}
+                      className="flex-1 bg-[#0d1117] border border-[#30363d] rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-400 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={guardarGeocerca}
+                      disabled={savingGeo}
+                      className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-xs px-3 py-1 rounded-lg shrink-0"
+                    >
+                      {savingGeo ? '⏳ Guardando...' : 'Guardar'}
+                    </button>
+                    <button
+                      onClick={cancelarDibujo}
+                      disabled={savingGeo}
+                      className="text-[#484f58] hover:text-red-400 text-xs shrink-0"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  {geoError && (
+                    <p className="text-red-400 text-xs bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
+                      ✗ {geoError}
+                    </p>
+                  )}
                 </div>
               )}
 
-              {/* Fila 2: filtros HU-12 */}
+              {/* Fila 2: slider temporal HU-19 */}
+              <TimeSlider dias={diasSlider} onChange={setDiasSlider} />
+
+              {/* Fila 3: filtros HU-12 */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[#484f58] text-xs shrink-0">Filtrar:</span>
                 {['alto', 'medio', 'bajo'].map(n => (

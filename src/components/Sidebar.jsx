@@ -2,14 +2,16 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const NAV_ADMIN = [
-  { icon: '🗺️', label: 'Mapa Predictivo', path: '/dashboard' },
-  { icon: '📋', label: 'Todos los Reportes', path: '/admin/reportes' },
-  { icon: '🔔', label: 'Alertas', path: '/dashboard' },
+  { icon: '🗺️',  label: 'Mapa Predictivo',      path: '/dashboard' },
+  { icon: '📋',  label: 'Todos los Reportes',   path: '/admin/reportes' },
+  { icon: '📅',  label: 'Bitácora Histórica',   path: '/admin/historico' },
+  { icon: '📊',  label: 'Dashboard Gerencial',  path: '/admin/gerencial' },
+  { icon: '📝',  label: 'Reportar Plaga',        path: '/reportar' },
 ]
 
 const NAV_TRABAJADOR = [
   { icon: '📝', label: 'Reportar Plaga', path: '/reportar' },
-  { icon: '🗺️', label: 'Mapa', path: '/dashboard' },
+  { icon: '🗺️', label: 'Mapa',           path: '/dashboard' },
 ]
 
 export default function Sidebar() {

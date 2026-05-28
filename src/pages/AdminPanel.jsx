@@ -1,6 +1,6 @@
-// HU-06: Panel Admin — Tabla de reportes en tiempo real desde Firestore
+// HU-06 + HU-18: Panel Admin — Tabla de reportes en tiempo real desde Firestore
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, query, orderBy, addDoc, Timestamp } from 'firebase/firestore'
+import { collection, onSnapshot, query, orderBy, addDoc, Timestamp, updateDoc, doc } from 'firebase/firestore'
 import { db } from '../firebase'
 import Sidebar from '../components/Sidebar'
 
@@ -21,10 +21,23 @@ const nivelBadge = {
 }
 
 export default function AdminPanel() {
-  const [reportes, setReportes]   = useState([])
-  const [filtro, setFiltro]       = useState('')
-  const [seeding, setSeeding]     = useState(false)
-  const [seedDone, setSeedDone]   = useState(false)
+  const [reportes,   setReportes]   = useState([])
+  const [filtro,     setFiltro]     = useState('')
+  const [seeding,    setSeeding]    = useState(false)
+  const [seedDone,   setSeedDone]   = useState(false)
+  const [archivando, setArchivando] = useState(new Set())
+
+  const toggleArchivo = async (r) => {
+    const nuevoEstado = r.estado === 'archivado' ? 'activo' : 'archivado'
+    setArchivando(s => new Set(s).add(r.id))
+    try {
+      await updateDoc(doc(db, 'reportes', r.id), { estado: nuevoEstado })
+    } catch (err) {
+      console.error('Error al archivar:', err)
+    } finally {
+      setArchivando(s => { const n = new Set(s); n.delete(r.id); return n })
+    }
+  }
 
   const handleSeed = async () => {
     setSeeding(true)
@@ -132,38 +145,57 @@ export default function AdminPanel() {
                 <th className="text-left px-4 py-3">Coordenadas</th>
                 <th className="text-left px-4 py-3">Reportado por</th>
                 <th className="text-left px-4 py-3">Fecha</th>
+                <th className="text-left px-4 py-3">Estado</th>
               </tr>
             </thead>
             <tbody>
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center text-[#484f58] py-10">
+                  <td colSpan={7} className="text-center text-[#484f58] py-10">
                     No hay reportes registrados.
                   </td>
                 </tr>
               )}
-              {filtrados.map(r => (
-                <tr key={r.id} className="border-b border-[#21262d] hover:bg-[#1c2128] transition-colors">
-                  <td className="px-4 py-3 text-[#c9d1d9] font-medium">{r.plaga}</td>
-                  <td className="px-4 py-3 text-[#8b949e]">{r.finca}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs capitalize ${nivelBadge[r.nivel]}`}>
-                      {r.nivel}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-[#8b949e]">
-                    {r.lat?.toFixed(5)}, {r.lng?.toFixed(5)}
-                  </td>
-                  <td className="px-4 py-3 text-[#8b949e] text-xs truncate max-w-[140px]">
-                    {r.email_reportador}
-                  </td>
-                  <td className="px-4 py-3 text-[#484f58] text-xs">
-                    {r.fecha instanceof Date
-                      ? r.fecha.toLocaleDateString('es-CO')
-                      : r.fecha?.toDate?.()?.toLocaleDateString('es-CO') ?? '—'}
-                  </td>
-                </tr>
-              ))}
+              {filtrados.map(r => {
+                const archivado = r.estado === 'archivado'
+                const enCurso   = archivando.has(r.id)
+                return (
+                  <tr key={r.id} className={`border-b border-[#21262d] hover:bg-[#1c2128] transition-colors ${archivado ? 'opacity-50' : ''}`}>
+                    <td className="px-4 py-3 text-[#c9d1d9] font-medium">{r.plaga}</td>
+                    <td className="px-4 py-3 text-[#8b949e]">{r.finca}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs capitalize ${nivelBadge[r.nivel]}`}>
+                        {r.nivel}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-[#8b949e]">
+                      {r.lat?.toFixed(5)}, {r.lng?.toFixed(5)}
+                    </td>
+                    <td className="px-4 py-3 text-[#8b949e] text-xs truncate max-w-[140px]">
+                      {r.email_reportador}
+                    </td>
+                    <td className="px-4 py-3 text-[#484f58] text-xs">
+                      {r.fecha instanceof Date
+                        ? r.fecha.toLocaleDateString('es-CO')
+                        : r.fecha?.toDate?.()?.toLocaleDateString('es-CO') ?? '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => toggleArchivo(r)}
+                        disabled={enCurso}
+                        title={archivado ? 'Restaurar a activo' : 'Archivar reporte'}
+                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-50 ${
+                          archivado
+                            ? 'border-[#10b981]/40 text-[#10b981] hover:bg-[#10b981]/10'
+                            : 'border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400'
+                        }`}
+                      >
+                        {enCurso ? '⏳' : archivado ? '↩ Restaurar' : '📦 Archivar'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
