@@ -1,4 +1,4 @@
-// HU-18: Bitácora Histórica — tabla completa con filtros y gestión de estado
+// HU-18 + HU-CONSENSO: Bitácora Histórica — tabla completa con filtros y validación
 import { useState, useEffect, useMemo } from 'react'
 import {
   collection, onSnapshot, query, orderBy,
@@ -7,6 +7,7 @@ import {
 import { db } from '../firebase'
 import Sidebar from '../components/Sidebar'
 import { useAuth } from '../context/AuthContext'
+import { calcularEstadosConsenso, ESTADO_LABEL, ESTADO_COLOR } from '../utils/consensusValidation'
 
 const nivelBadge = {
   alto:  'bg-red-500/20 text-red-400 border border-red-500/30',
@@ -41,6 +42,9 @@ export default function HistoricoPage() {
   // Paginación
   const [pagina, setPagina] = useState(1)
   const POR_PAGINA = 15
+
+  // HU-CONSENSO: estados de validación calculados
+  const estadosConsenso = useMemo(() => calcularEstadosConsenso(reportes), [reportes])
 
   // Acciones de archivado en curso
   const [archivando, setArchivando] = useState(new Set())
@@ -262,13 +266,14 @@ export default function HistoricoPage() {
                     <th className="text-left px-4 py-3">Reportado por</th>
                     <th className="text-left px-4 py-3">Fecha</th>
                     <th className="text-left px-4 py-3">Estado</th>
+                    <th className="text-left px-4 py-3">Validación</th>
                     {isAdmin && <th className="text-left px-4 py-3">Acción</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {visible.length === 0 && (
                     <tr>
-                      <td colSpan={isAdmin ? 7 : 6} className="text-center text-[#484f58] py-12 text-sm">
+                      <td colSpan={isAdmin ? 8 : 7} className="text-center text-[#484f58] py-12 text-sm">
                         {hayFiltro ? 'Sin resultados para los filtros aplicados.' : 'Sin reportes registrados.'}
                       </td>
                     </tr>
@@ -302,6 +307,23 @@ export default function HistoricoPage() {
                               ✅ Activo
                             </span>
                           )}
+                        </td>
+                        {/* Columna validación por consenso */}
+                        <td className="px-4 py-3">
+                          {(() => {
+                            const ev = estadosConsenso.get(r.id) ?? 'sospechoso'
+                            return (
+                              <span className="text-xs font-medium" style={{ color: ESTADO_COLOR[ev] ?? '#8b949e' }}>
+                                {{
+                                  sospechoso:             '🟡',
+                                  alerta_preventiva:      '🟠',
+                                  confirmado_algoritmico: '🔴',
+                                  confirmado:             '🔴',
+                                  descartado:             '⬛',
+                                }[ev] ?? '●'}{' '}{ESTADO_LABEL[ev] ?? ev}
+                              </span>
+                            )
+                          })()}
                         </td>
                         {isAdmin && (
                           <td className="px-4 py-3">

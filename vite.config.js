@@ -13,6 +13,7 @@ export default defineConfig({
           'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
           'vendor-leaflet':  ['leaflet', 'react-leaflet'],
           'vendor-charts':   ['chart.js', 'react-chartjs-2'],
+          'vendor-gemini':   ['@google/genai'],
         },
       },
     },

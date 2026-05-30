@@ -1,8 +1,15 @@
-// HU-06 + HU-18: Panel Admin — Tabla de reportes en tiempo real desde Firestore
-import { useState, useEffect } from 'react'
+// HU-06 + HU-18 + HU-CONSENSO: Panel Admin
+import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, Timestamp, updateDoc, doc } from 'firebase/firestore'
 import { db } from '../firebase'
 import Sidebar from '../components/Sidebar'
+import {
+  calcularEstadosConsenso,
+  detectarClusters,
+  ESTADO_LABEL,
+  ESTADO_COLOR,
+  CONSENSUS_CONFIG,
+} from '../utils/consensusValidation'
 
 const SEED_REPORTES = [
   { plaga: 'Mosca del mediterráneo', finca: 'Finca La Esperanza',  nivel: 'alto',  lat: 3.8801, lng: -76.3000, temp_c: 27, humedad: 72, viento_kmh: 14, viento_dir: 45,  email_reportador: 'campo@plagapredict.com' },
@@ -38,6 +45,31 @@ export default function AdminPanel() {
       setArchivando(s => { const n = new Set(s); n.delete(r.id); return n })
     }
   }
+
+  // HU-CONSENSO: confirmación / descarte manual por agrónomo/admin
+  const [validando, setValidando] = useState(new Set())
+
+  const cambiarValidacion = async (r, nuevoEstado) => {
+    setValidando(s => new Set(s).add(r.id))
+    try {
+      await updateDoc(doc(db, 'reportes', r.id), { estado_validacion: nuevoEstado })
+    } catch (err) {
+      console.error('Error al validar:', err)
+    } finally {
+      setValidando(s => { const n = new Set(s); n.delete(r.id); return n })
+    }
+  }
+
+  // Calcular estados de consenso para mostrar en la tabla
+  const estadosConsenso = useMemo(() => calcularEstadosConsenso(reportes), [reportes])
+  const clusters        = useMemo(() => detectarClusters(reportes, estadosConsenso), [reportes, estadosConsenso])
+
+  // Contadores de validación
+  const countSospechosos  = reportes.filter(r => (estadosConsenso.get(r.id) ?? 'sospechoso') === 'sospechoso').length
+  const countPreventivos  = reportes.filter(r => estadosConsenso.get(r.id) === 'alerta_preventiva').length
+  const countConfirmados  = reportes.filter(r =>
+    estadosConsenso.get(r.id) === 'confirmado' || estadosConsenso.get(r.id) === 'confirmado_algoritmico'
+  ).length
 
   const handleSeed = async () => {
     setSeeding(true)
@@ -104,6 +136,37 @@ export default function AdminPanel() {
           )}
         </div>
 
+        {/* HU-CONSENSO: Panel de focos activos */}
+        {clusters.length > 0 && (
+          <div className="mb-6 bg-[#161b22] border border-orange-500/30 rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+              🔬 Focos Detectados por Consenso Espacio-Temporal
+              <span className="ml-1 text-xs bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded">
+                {clusters.length}
+              </span>
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              {clusters.slice(0, 4).map((c, i) => {
+                const isConfirmed = c.estado === 'confirmado' || c.estado === 'confirmado_algoritmico'
+                return (
+                  <div key={i} className={`rounded-lg p-3 border text-xs ${
+                    isConfirmed ? 'bg-red-500/10 border-red-500/30' : 'bg-orange-500/10 border-orange-500/30'
+                  }`}>
+                    <p className={`font-semibold ${isConfirmed ? 'text-red-400' : 'text-orange-400'}`}>
+                      {isConfirmed ? '🔴' : '🟠'} {c.plaga}
+                    </p>
+                    <p className="text-[#8b949e] mt-1">{c.cantidad} reportes · radio {CONSENSUS_CONFIG.radioKm} km</p>
+                    <p className="text-[#484f58]">{ESTADO_LABEL[c.estado] ?? c.estado}</p>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="text-[#484f58] text-xs mt-3 pt-2 border-t border-[#21262d]">
+              Protocolo: X={CONSENSUS_CONFIG.minReportes} rep · Y={CONSENSUS_CONFIG.radioKm} km · Z={CONSENSUS_CONFIG.ventanaHoras} h · Umbral crítico: {CONSENSUS_CONFIG.umbralCritico} rep en {CONSENSUS_CONFIG.ventanaCriticaHoras} h
+            </p>
+          </div>
+        )}
+
         {/* Contadores */}
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[
@@ -117,6 +180,22 @@ export default function AdminPanel() {
               <p className="text-[#8b949e] text-xs mt-0.5">{c.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* Contadores de validación (consenso) */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
+            <p className="text-2xl font-bold text-yellow-400">{countSospechosos}</p>
+            <p className="text-[#8b949e] text-xs mt-0.5">🟡 Sospechosos</p>
+          </div>
+          <div className="bg-[#161b22] border border-orange-500/30 rounded-xl p-4">
+            <p className="text-2xl font-bold text-orange-400">{countPreventivos}</p>
+            <p className="text-[#8b949e] text-xs mt-0.5">🟠 Alerta Preventiva</p>
+          </div>
+          <div className="bg-[#161b22] border border-red-500/30 rounded-xl p-4">
+            <p className="text-2xl font-bold text-red-400">{countConfirmados}</p>
+            <p className="text-[#8b949e] text-xs mt-0.5">🔴 Confirmados</p>
+          </div>
         </div>
 
         {/* Filtro */}
@@ -146,12 +225,14 @@ export default function AdminPanel() {
                 <th className="text-left px-4 py-3">Reportado por</th>
                 <th className="text-left px-4 py-3">Fecha</th>
                 <th className="text-left px-4 py-3">Estado</th>
+                <th className="text-left px-4 py-3">Validación</th>
+                <th className="text-left px-4 py-3">Acción</th>
               </tr>
             </thead>
             <tbody>
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="text-center text-[#484f58] py-10">
+                  <td colSpan={9} className="text-center text-[#484f58] py-10">
                     No hay reportes registrados.
                   </td>
                 </tr>
@@ -192,6 +273,74 @@ export default function AdminPanel() {
                       >
                         {enCurso ? '⏳' : archivado ? '↩ Restaurar' : '📦 Archivar'}
                       </button>
+                    </td>
+                    {/* HU-CONSENSO: estado calculado */}
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const ev = estadosConsenso.get(r.id) ?? 'sospechoso'
+                        const label = ESTADO_LABEL[ev] ?? ev
+                        const color = ESTADO_COLOR[ev] ?? '#8b949e'
+                        return (
+                          <span className="text-xs font-medium" style={{ color }}>
+                            {{
+                              sospechoso:             '🟡',
+                              alerta_preventiva:      '🟠',
+                              confirmado_algoritmico: '🔴',
+                              confirmado:             '🔴',
+                              descartado:             '⬛',
+                            }[ev] ?? '●'}{' '}{label}
+                          </span>
+                        )
+                      })()}
+                    </td>
+                    {/* HU-CONSENSO: botones Confirmar / Descartar */}
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const ev      = estadosConsenso.get(r.id) ?? 'sospechoso'
+                        const enVal   = validando.has(r.id)
+                        if (ev === 'descartado') {
+                          return (
+                            <button
+                              onClick={() => cambiarValidacion(r, 'sospechoso')}
+                              disabled={enVal}
+                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#484f58] disabled:opacity-50"
+                            >
+                              {enVal ? '⏳' : '↩ Reactivar'}
+                            </button>
+                          )
+                        }
+                        if (ev === 'confirmado') {
+                          return (
+                            <button
+                              onClick={() => cambiarValidacion(r, 'sospechoso')}
+                              disabled={enVal}
+                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:text-yellow-400 hover:border-yellow-500/40 disabled:opacity-50"
+                            >
+                              {enVal ? '⏳' : '↩ Revertir'}
+                            </button>
+                          )
+                        }
+                        return (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => cambiarValidacion(r, 'confirmado')}
+                              disabled={enVal}
+                              title="Confirmar como plaga real"
+                              className="text-xs px-2 py-1 rounded border border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-50"
+                            >
+                              {enVal ? '⏳' : '✅ Confirmar'}
+                            </button>
+                            <button
+                              onClick={() => cambiarValidacion(r, 'descartado')}
+                              disabled={enVal}
+                              title="Descartar (falso positivo)"
+                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400 disabled:opacity-50"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </td>
                   </tr>
                 )

@@ -1,7 +1,11 @@
-// HU-20 + HU-21 + HU-22: Dashboard Gerencial — KPIs estadísticos + gráficos Chart.js
+// HU-20 + HU-21 + HU-22 + HU-CONSENSO: Dashboard Gerencial
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
 import { db } from '../firebase'
+import {
+  calcularEstadosConsenso,
+  detectarClusters,
+} from '../utils/consensusValidation'
 import {
   Chart as ChartJS,
   CategoryScale, LinearScale, BarElement,
@@ -66,8 +70,18 @@ export default function GerencialDashboard() {
   const pctMedio   = activos.length ? Math.round((medios.length / activos.length) * 100) : 0
   const pctBajo    = activos.length ? Math.round((bajos.length  / activos.length) * 100) : 0
 
-  const colisiones       = useMemo(() => detectarColisiones(activos, geocercas), [activos, geocercas])
+  const colisiones        = useMemo(() => detectarColisiones(activos, geocercas), [activos, geocercas])
   const geocercasEnRiesgo = new Set(colisiones.map(c => c.geocercaId)).size
+
+  // HU-CONSENSO: estados de validación
+  const estadosConsenso = useMemo(() => calcularEstadosConsenso(activos), [activos])
+  const clusters        = useMemo(() => detectarClusters(activos, estadosConsenso), [activos, estadosConsenso])
+
+  const cntSospechosos  = activos.filter(r => (estadosConsenso.get(r.id) ?? 'sospechoso') === 'sospechoso').length
+  const cntPreventivos  = activos.filter(r => estadosConsenso.get(r.id) === 'alerta_preventiva').length
+  const cntConfirmados  = activos.filter(r =>
+    estadosConsenso.get(r.id) === 'confirmado' || estadosConsenso.get(r.id) === 'confirmado_algoritmico'
+  ).length
 
   // Plaga más frecuente
   const frecPlaga = activos.reduce((acc, r) => {
@@ -222,6 +236,55 @@ export default function GerencialDashboard() {
                 <p className="text-[#484f58] text-xs mt-0.5">{k.sub}</p>
               </div>
             ))}
+          </div>
+
+          {/* HU-CONSENSO: KPIs del Protocolo de Validación */}
+          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+              🔬 Protocolo de Validación Espacio-Temporal
+              <span className="text-xs text-[#484f58] font-normal ml-1">
+                · X=3 rep · Y=5 km · Z=48 h
+              </span>
+            </h3>
+            <div className="grid grid-cols-4 gap-4">
+              <div className="bg-[#0d1117] rounded-xl p-4 border border-[#21262d]">
+                <p className="text-2xl font-bold text-yellow-400">{cntSospechosos}</p>
+                <p className="text-[#c9d1d9] text-sm font-medium mt-1">🟡 Sospechosos</p>
+                <p className="text-[#484f58] text-xs mt-0.5">Aislados, sin confirmar</p>
+              </div>
+              <div className="bg-orange-500/5 rounded-xl p-4 border border-orange-500/20">
+                <p className="text-2xl font-bold text-orange-400">{cntPreventivos}</p>
+                <p className="text-[#c9d1d9] text-sm font-medium mt-1">🟠 Alerta Preventiva</p>
+                <p className="text-[#484f58] text-xs mt-0.5">Cluster activo (Fase 2)</p>
+              </div>
+              <div className="bg-red-500/5 rounded-xl p-4 border border-red-500/20">
+                <p className="text-2xl font-bold text-red-400">{cntConfirmados}</p>
+                <p className="text-[#c9d1d9] text-sm font-medium mt-1">🔴 Confirmados</p>
+                <p className="text-[#484f58] text-xs mt-0.5">Plaga validada (Fase 3)</p>
+              </div>
+              <div className="bg-[#0d1117] rounded-xl p-4 border border-[#21262d]">
+                <p className="text-2xl font-bold text-white">{clusters.length}</p>
+                <p className="text-[#c9d1d9] text-sm font-medium mt-1">📍 Focos Activos</p>
+                <p className="text-[#484f58] text-xs mt-0.5">Clusters espaciales</p>
+              </div>
+            </div>
+            {clusters.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-[#21262d] grid grid-cols-2 gap-2">
+                {clusters.slice(0, 4).map((c, i) => {
+                  const isConf = c.estado !== 'alerta_preventiva'
+                  return (
+                    <div key={i} className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg border ${
+                      isConf ? 'bg-red-500/10 border-red-500/30' : 'bg-orange-500/10 border-orange-500/20'
+                    }`}>
+                      <span className={isConf ? 'text-red-300' : 'text-orange-300'}>
+                        {isConf ? '🔴' : '🟠'} {c.plaga}
+                      </span>
+                      <span className="text-[#484f58]">{c.cantidad} rep.</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* HU-21: Gráficos fila superior */}

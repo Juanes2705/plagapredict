@@ -1,5 +1,5 @@
 // Sprint 2 + Sprint 3: Mapa real, conos de riesgo, geocercas y alertas
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   collection, onSnapshot, query, orderBy,
@@ -15,6 +15,13 @@ import Sidebar from '../components/Sidebar'
 import RiskConeLayer from '../components/RiskConeLayer'
 import AlertPanel from '../components/AlertPanel'
 import TimeSlider from '../components/TimeSlider'
+import ClusterAlertPanel from '../components/ClusterAlertPanel'
+import {
+  calcularEstadosConsenso,
+  detectarClusters,
+  ESTADO_LABEL,
+  ESTADO_COLOR,
+} from '../utils/consensusValidation'
 import { fetchWeather, windDirLabel } from '../services/weatherService'
 import { detectarColisiones } from '../utils/collisionDetection'
 import { useAuth } from '../context/AuthContext'
@@ -40,13 +47,38 @@ function formatFecha(fecha) {
   return d.toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-// HU-10+11: marcador con popup detallado
-function ColorMarker({ r }) {
+// HU-10+11 + HU-CONSENSO: marcador con popup detallado y estado de validación visual
+function ColorMarker({ r, estadoConsenso }) {
   const color = nivelColor[r.nivel] ?? '#8b949e'
+
+  // Apariencia del marcador según estado de consenso
+  const markerHtml = (() => {
+    const base = 'width:14px;height:14px;border-radius:50%;cursor:pointer;'
+    switch (estadoConsenso) {
+      case 'sospechoso':
+        // Aislado: tenue, borde discontinuo, sin confirmar
+        return `<div style="${base}background:${color}35;border:2px dashed ${color};opacity:0.65"></div>`
+      case 'alerta_preventiva':
+        // Cluster preventivo: naranja pulsante
+        return `<div style="${base}background:${color};border:3px solid #f97316;box-shadow:0 0 0 4px #f9731630,0 0 10px ${color}80"></div>`
+      case 'confirmado_algoritmico':
+        // Confirmado por el sistema: rojo brillante con doble anillo
+        return `<div style="${base}width:16px;height:16px;background:${color};border:2px solid white;box-shadow:0 0 0 3px ${color}60,0 0 14px ${color}"></div>`
+      case 'confirmado':
+        // Confirmado por agrónomo: máxima prominencia
+        return `<div style="${base}width:16px;height:16px;background:${color};border:3px solid white;box-shadow:0 0 0 4px ${color}80,0 0 18px ${color}"></div>`
+      case 'descartado':
+        return `<div style="${base}background:#484f58;border:1px solid #30363d;opacity:0.25"></div>`
+      default:
+        return `<div style="${base}background:${color};border:2px solid white;box-shadow:0 0 8px ${color}80"></div>`
+    }
+  })()
+
+  const iconSize = (estadoConsenso === 'confirmado' || estadoConsenso === 'confirmado_algoritmico') ? 16 : 14
   const icon = L.divIcon({
     className: '',
-    html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 8px ${color}80;cursor:pointer"></div>`,
-    iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10],
+    html: markerHtml,
+    iconSize: [iconSize, iconSize], iconAnchor: [iconSize / 2, iconSize / 2], popupAnchor: [0, -10],
   })
   return (
     <Marker position={[r.lat, r.lng]} icon={icon}>
@@ -62,6 +94,22 @@ function ColorMarker({ r }) {
             <div style={{ background: '#f5f5f5', borderRadius: 6, padding: '4px 8px', marginBottom: 6, fontSize: 12 }}>
               🌡 {r.temp_c}°C {'  '} 💧 {r.humedad}% {'  '} 🌬 {r.viento_kmh} km/h {windDirLabel(r.viento_dir)}
             </div>
+          )}
+          {estadoConsenso && (
+            <p style={{
+              marginBottom: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              color: ESTADO_COLOR[estadoConsenso] ?? '#8b949e',
+            }}>
+              {{
+                sospechoso:             '🟡 Sospechoso — aislado, sin confirmar',
+                alerta_preventiva:      '🟠 Alerta Preventiva — cluster activo',
+                confirmado_algoritmico: '🔴 Confirmado por el sistema',
+                confirmado:             '🔴 Plaga Confirmada por agrónomo',
+                descartado:             '⬛ Descartado',
+              }[estadoConsenso] ?? estadoConsenso}
+            </p>
           )}
           <p style={{ color: '#999', fontSize: 11, marginBottom: 2 }}>👤 {r.email_reportador}</p>
           <p style={{ color: '#aaa', fontSize: 11, marginBottom: 2 }}>📅 {formatFecha(r.fecha)}</p>
@@ -111,6 +159,9 @@ export default function Dashboard() {
   // --- alertas (HU-17) ---
   const [colisiones,   setColisiones]   = useState([])
   const [alertaAbierta, setAlertaAbierta] = useState(true)
+
+  // --- HU-CONSENSO: validación espacio-temporal ---
+  const [clusterAbierto, setClusterAbierto] = useState(true)
 
   // Cargar reportes en tiempo real
   useEffect(() => {
@@ -221,6 +272,16 @@ export default function Dashboard() {
   const eliminarGeocerca = async (id) => {
     await deleteDoc(doc(db, 'geocercas', id))
   }
+
+  // HU-CONSENSO: estados de consenso calculados en tiempo real
+  const estadosConsenso = useMemo(
+    () => calcularEstadosConsenso(reportes),
+    [reportes]
+  )
+  const clusters = useMemo(
+    () => detectarClusters(reportes, estadosConsenso),
+    [reportes, estadosConsenso]
+  )
 
   // Ids de geocercas afectadas (para resaltarlas en el mapa)
   const geocercasAfectadas = new Set(colisiones.map(c => c.geocercaId))
@@ -341,9 +402,9 @@ export default function Dashboard() {
 
                   {/* Leyenda */}
                   <div className="flex items-center gap-3 text-xs text-[#8b949e]">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Alto</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />Medio</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Bajo</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block opacity-50" />Sospechoso</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-1 ring-orange-400 inline-block" />Preventivo</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 ring-2 ring-white inline-block" />Confirmado</span>
                   </div>
                 </div>
               </div>
@@ -447,8 +508,17 @@ export default function Dashboard() {
                 {/* HU-15: captura clics para dibujar */}
                 <MapClickHandler drawMode={drawMode} onMapClick={handleMapClick} />
 
-                {/* HU-10+11: marcadores de reportes */}
-                {reportesFiltrados.map(r => <ColorMarker key={r.id} r={r} />)}
+                {/* HU-10+11 + HU-CONSENSO: marcadores con estado de validación visual */}
+                {reportesFiltrados
+                  .filter(r => estadosConsenso.get(r.id) !== 'descartado')
+                  .map(r => (
+                    <ColorMarker
+                      key={r.id}
+                      r={r}
+                      estadoConsenso={estadosConsenso.get(r.id) ?? 'sospechoso'}
+                    />
+                  ))
+                }
 
                 {/* HU-14: conos de dispersión */}
                 {showCones && <RiskConeLayer reportes={reportesFiltrados} />}
@@ -522,13 +592,33 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Botón reabrir alertas */}
+              {/* Botón reabrir alertas de viento */}
               {colisiones.length > 0 && !alertaAbierta && (
                 <button
                   onClick={() => setAlertaAbierta(true)}
                   className="absolute top-3 right-3 z-[1000] bg-yellow-500 text-black text-xs font-bold px-3 py-1.5 rounded-lg animate-pulse"
                 >
                   ⚠️ {colisiones.length} alerta{colisiones.length > 1 ? 's' : ''}
+                </button>
+              )}
+
+              {/* HU-CONSENSO: panel de clusters activos */}
+              {clusters.length > 0 && clusterAbierto && (
+                <ClusterAlertPanel
+                  clusters={clusters}
+                  onClose={() => setClusterAbierto(false)}
+                />
+              )}
+              {clusters.length > 0 && !clusterAbierto && (
+                <button
+                  onClick={() => setClusterAbierto(true)}
+                  className={`absolute bottom-4 left-4 z-[1000] text-white text-xs font-bold px-3 py-1.5 rounded-lg animate-pulse ${
+                    clusters.some(c => c.estado === 'confirmado' || c.estado === 'confirmado_algoritmico')
+                      ? 'bg-red-600'
+                      : 'bg-orange-500'
+                  }`}
+                >
+                  🔴 {clusters.length} foco{clusters.length > 1 ? 's' : ''} activo{clusters.length > 1 ? 's' : ''}
                 </button>
               )}
             </div>
@@ -581,6 +671,45 @@ export default function Dashboard() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* HU-CONSENSO: Focos activos detectados por consenso */}
+            {clusters.length > 0 && (
+              <div className="bg-[#161b22] border border-orange-500/30 rounded-xl p-4 shrink-0">
+                <h3 className="font-semibold text-sm text-white mb-3 flex items-center gap-2">
+                  <span>🔬</span>
+                  <span>Focos Detectados</span>
+                  <span className="ml-auto text-xs bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded">
+                    {clusters.length}
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {clusters.slice(0, 4).map((c, i) => {
+                    const isConfirmed = c.estado === 'confirmado' || c.estado === 'confirmado_algoritmico'
+                    return (
+                      <div
+                        key={i}
+                        className={`rounded-lg p-2.5 border text-xs ${
+                          isConfirmed
+                            ? 'bg-red-500/10 border-red-500/30'
+                            : 'bg-orange-500/10 border-orange-500/30'
+                        }`}
+                      >
+                        <p className={`font-semibold truncate ${isConfirmed ? 'text-red-400' : 'text-orange-400'}`}>
+                          {isConfirmed ? '🔴' : '🟠'} {c.plaga}
+                        </p>
+                        <p className="text-[#8b949e] mt-0.5">{c.cantidad} reportes en el área</p>
+                        <p className="text-[#484f58] text-xs mt-0.5">
+                          {ESTADO_LABEL[c.estado] ?? c.estado}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-[#484f58] text-xs mt-2 pt-2 border-t border-[#21262d]">
+                  Radio 5 km · ventana 48 h · umbral 3 rep.
+                </p>
               </div>
             )}
 
