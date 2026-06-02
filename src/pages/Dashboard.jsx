@@ -216,7 +216,9 @@ export default function Dashboard() {
   const fechaCorteMs = fechaCorte.getTime()
 
   const reportesFiltrados = reportes.filter(r => {
-    if (r.lat == null || r.lng == null) return false
+    if (r.lat == null || r.lng == null)        return false
+    if (r.estado === 'archivado')              return false   // ocultar archivados
+    if (r.estado_validacion === 'descartado')  return false   // ocultar descartados
     if (filtroPlaga && r.plaga !== filtroPlaga) return false
     if (filtroNivel && r.nivel !== filtroNivel) return false
     const f = r.fecha?.toDate?.() ?? (r.fecha instanceof Date ? r.fecha : null)
@@ -509,16 +511,13 @@ export default function Dashboard() {
                 <MapClickHandler drawMode={drawMode} onMapClick={handleMapClick} />
 
                 {/* HU-10+11 + HU-CONSENSO: marcadores con estado de validación visual */}
-                {reportesFiltrados
-                  .filter(r => estadosConsenso.get(r.id) !== 'descartado')
-                  .map(r => (
-                    <ColorMarker
-                      key={r.id}
-                      r={r}
-                      estadoConsenso={estadosConsenso.get(r.id) ?? 'sospechoso'}
-                    />
-                  ))
-                }
+                {reportesFiltrados.map(r => (
+                  <ColorMarker
+                    key={r.id}
+                    r={r}
+                    estadoConsenso={estadosConsenso.get(r.id) ?? 'sospechoso'}
+                  />
+                ))}
 
                 {/* HU-14: conos de dispersión */}
                 {showCones && <RiskConeLayer reportes={reportesFiltrados} />}
