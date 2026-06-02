@@ -1,4 +1,4 @@
-// HU-06 + HU-18 + HU-CONSENSO: Panel Admin
+// HU-06 + HU-18 + HU-CONSENSO: Panel Admin con detalle de reportes
 import { useState, useEffect, useMemo } from 'react'
 import { collection, onSnapshot, query, orderBy, addDoc, Timestamp, updateDoc, doc } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -27,59 +27,230 @@ const nivelBadge = {
   bajo:  'bg-green-500/20 text-green-400 border border-green-500/30',
 }
 
-export default function AdminPanel() {
-  const [reportes,   setReportes]   = useState([])
-  const [filtro,     setFiltro]     = useState('')
-  const [seeding,    setSeeding]    = useState(false)
-  const [seedDone,   setSeedDone]   = useState(false)
-  const [archivando, setArchivando] = useState(new Set())
+// ── Modal de detalle de reporte ───────────────────────────────────────────────
+function ModalDetalle({ reporte, estadoConsenso, onClose, onConfirmar, onDescartar, onRevertir, validando }) {
+  if (!reporte) return null
 
+  const ev        = estadoConsenso ?? 'sospechoso'
+  const label     = ESTADO_LABEL[ev] ?? ev
+  const color     = ESTADO_COLOR[ev] ?? '#8b949e'
+  const enVal     = validando
+  const ia        = reporte.ia_identificacion
+  const fecha     = reporte.fecha?.toDate?.()?.toLocaleDateString('es-CO', {
+    year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit'
+  }) ?? '—'
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-[#30363d]">
+          <div>
+            <h3 className="text-lg font-bold text-white">{reporte.plaga}</h3>
+            <p className="text-[#8b949e] text-sm mt-0.5">{reporte.finca}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full border" style={{ color, borderColor: color + '40' }}>
+              {label}
+            </span>
+            <button onClick={onClose}
+              className="text-[#484f58] hover:text-white text-xl leading-none transition-colors">✕</button>
+          </div>
+        </div>
+
+        {/* Imagen de la plaga */}
+        {reporte.imagenBase64 ? (
+          <div className="mx-5 mt-4 rounded-xl overflow-hidden border border-[#30363d] bg-[#0d1117]">
+            <img
+              src={reporte.imagenBase64}
+              alt={`Fotografía de ${reporte.plaga}`}
+              className="w-full max-h-72 object-cover"
+              onError={e => { e.currentTarget.parentElement.style.display = 'none' }}
+            />
+            <p className="text-center text-[#484f58] text-xs py-1.5">Fotografía del avistamiento</p>
+          </div>
+        ) : (
+          <div className="mx-5 mt-4 rounded-xl border border-dashed border-[#30363d] bg-[#0d1117] flex items-center justify-center py-8">
+            <div className="text-center text-[#484f58]">
+              <span className="text-3xl block mb-1">📷</span>
+              <span className="text-xs">Sin fotografía adjunta</span>
+            </div>
+          </div>
+        )}
+
+        {/* Datos del reporte */}
+        <div className="p-5 space-y-4">
+
+          {/* Grid de datos básicos */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-1">📍 Coordenadas</p>
+              <p className="text-[#c9d1d9] text-sm font-mono">
+                {reporte.lat?.toFixed(6)}, {reporte.lng?.toFixed(6)}
+              </p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-1">⚠️ Nivel de riesgo</p>
+              <span className={`text-xs px-2 py-0.5 rounded capitalize ${nivelBadge[reporte.nivel] ?? ''}`}>
+                {reporte.nivel ?? '—'}
+              </span>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-1">👤 Reportado por</p>
+              <p className="text-[#c9d1d9] text-sm truncate">{reporte.email_reportador ?? '—'}</p>
+            </div>
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-1">📅 Fecha</p>
+              <p className="text-[#c9d1d9] text-sm">{fecha}</p>
+            </div>
+          </div>
+
+          {/* Clima */}
+          {(reporte.temp_c || reporte.humedad || reporte.viento_kmh) && (
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-2">🌤️ Condiciones climáticas al momento del reporte</p>
+              <div className="flex gap-4 text-sm text-[#c9d1d9]">
+                {reporte.temp_c    != null && <span>🌡️ {reporte.temp_c}°C</span>}
+                {reporte.humedad   != null && <span>💧 {reporte.humedad}%</span>}
+                {reporte.viento_kmh != null && <span>🌬️ {reporte.viento_kmh} km/h</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Descripción */}
+          {reporte.descripcion && reporte.descripcion.trim() && (
+            <div className="bg-[#0d1117] rounded-lg p-3">
+              <p className="text-[#484f58] text-xs mb-1">📝 Descripción del trabajador</p>
+              <p className="text-[#c9d1d9] text-sm leading-relaxed">{reporte.descripcion}</p>
+            </div>
+          )}
+
+          {/* Identificación por IA */}
+          {ia && (
+            <div className="bg-[#10b981]/5 border border-[#10b981]/30 rounded-lg p-3">
+              <p className="text-[#10b981] text-xs font-semibold mb-2">🤖 Identificación por IA</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p className="text-[#484f58] text-xs">Nombre común</p>
+                  <p className="text-[#c9d1d9]">{ia.nombreComun}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-xs">Nombre científico</p>
+                  <p className="text-[#c9d1d9] italic">{ia.nombreCientifico}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-xs">Confianza</p>
+                  <p className="text-[#c9d1d9] font-semibold">{ia.porcentajeConfianza}%</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-xs">Modelo usado</p>
+                  <p className="text-[#484f58] text-xs">{ia.modelo ?? '—'}</p>
+                </div>
+              </div>
+              {ia.descripcionDano && (
+                <p className="text-[#8b949e] text-xs mt-2 pt-2 border-t border-[#10b981]/20">
+                  💡 {ia.descripcionDano}
+                </p>
+              )}
+              {ia.confirmadaPorUsuario && (
+                <p className="text-[#10b981] text-xs mt-1">✅ Confirmada por el trabajador de campo</p>
+              )}
+            </div>
+          )}
+
+          {/* Nota profesional */}
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+            <p className="text-blue-400 text-xs font-semibold mb-1">👨‍🔬 Acción del profesional</p>
+            <p className="text-[#8b949e] text-xs">
+              Solo un agrónomo o profesional certificado puede confirmar oficialmente este avistamiento.
+              La confirmación activa alertas a todos los trabajadores de la zona.
+            </p>
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex gap-2 pt-2">
+            {ev === 'descartado' ? (
+              <button onClick={onRevertir} disabled={enVal}
+                className="flex-1 py-2.5 text-sm border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#484f58] rounded-lg transition-colors disabled:opacity-50">
+                {enVal ? '⏳' : '↩ Reactivar reporte'}
+              </button>
+            ) : ev === 'confirmado' ? (
+              <button onClick={onRevertir} disabled={enVal}
+                className="flex-1 py-2.5 text-sm border border-[#30363d] text-[#484f58] hover:text-yellow-400 hover:border-yellow-500/40 rounded-lg transition-colors disabled:opacity-50">
+                {enVal ? '⏳' : '↩ Revertir confirmación'}
+              </button>
+            ) : (
+              <>
+                <button onClick={onConfirmar} disabled={enVal}
+                  className="flex-1 py-2.5 text-sm bg-green-500/10 border border-green-500/40 text-green-400 hover:bg-green-500/20 rounded-lg font-semibold transition-colors disabled:opacity-50">
+                  {enVal ? '⏳' : '✅ Confirmar como plaga real'}
+                </button>
+                <button onClick={onDescartar} disabled={enVal}
+                  className="py-2.5 px-4 text-sm border border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400 rounded-lg transition-colors disabled:opacity-50">
+                  ✕ Descartar
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Componente principal ──────────────────────────────────────────────────────
+export default function AdminPanel() {
+  const [reportes,        setReportes]        = useState([])
+  const [filtro,          setFiltro]          = useState('')
+  const [seeding,         setSeeding]         = useState(false)
+  const [seedDone,        setSeedDone]        = useState(false)
+  const [archivando,      setArchivando]      = useState(new Set())
+  const [validando,       setValidando]       = useState(new Set())
+  const [detalleReporte,  setDetalleReporte]  = useState(null)   // reporte abierto en modal
+
+  // ── Archivo ────────────────────────────────────────────────────────────────
   const toggleArchivo = async (r) => {
     const nuevoEstado = r.estado === 'archivado' ? 'activo' : 'archivado'
     setArchivando(s => new Set(s).add(r.id))
     try {
       await updateDoc(doc(db, 'reportes', r.id), { estado: nuevoEstado })
-    } catch (err) {
-      console.error('Error al archivar:', err)
     } finally {
       setArchivando(s => { const n = new Set(s); n.delete(r.id); return n })
     }
   }
 
-  // HU-CONSENSO: confirmación / descarte manual por agrónomo/admin
-  const [validando, setValidando] = useState(new Set())
-
+  // ── Validación profesional ─────────────────────────────────────────────────
   const cambiarValidacion = async (r, nuevoEstado) => {
     setValidando(s => new Set(s).add(r.id))
     try {
       await updateDoc(doc(db, 'reportes', r.id), { estado_validacion: nuevoEstado })
-    } catch (err) {
-      console.error('Error al validar:', err)
+      // Actualizar el reporte en el modal si está abierto
+      if (detalleReporte?.id === r.id) {
+        setDetalleReporte(prev => ({ ...prev, estado_validacion: nuevoEstado }))
+      }
     } finally {
       setValidando(s => { const n = new Set(s); n.delete(r.id); return n })
     }
   }
 
-  // Calcular estados de consenso para mostrar en la tabla
+  // ── Consenso ───────────────────────────────────────────────────────────────
   const estadosConsenso = useMemo(() => calcularEstadosConsenso(reportes), [reportes])
   const clusters        = useMemo(() => detectarClusters(reportes, estadosConsenso), [reportes, estadosConsenso])
 
-  // Contadores de validación
-  const countSospechosos  = reportes.filter(r => (estadosConsenso.get(r.id) ?? 'sospechoso') === 'sospechoso').length
-  const countPreventivos  = reportes.filter(r => estadosConsenso.get(r.id) === 'alerta_preventiva').length
-  const countConfirmados  = reportes.filter(r =>
-    estadosConsenso.get(r.id) === 'confirmado' || estadosConsenso.get(r.id) === 'confirmado_algoritmico'
-  ).length
+  const countSospechosos = reportes.filter(r => (estadosConsenso.get(r.id) ?? 'sospechoso') === 'sospechoso').length
+  const countPreventivos = reportes.filter(r => estadosConsenso.get(r.id) === 'alerta_preventiva').length
+  const countConfirmados = reportes.filter(r => estadosConsenso.get(r.id) === 'confirmado').length
 
+  // ── Datos de prueba ────────────────────────────────────────────────────────
   const handleSeed = async () => {
     setSeeding(true)
     try {
       const col = collection(db, 'reportes')
-      // Inserta reportes en fechas distintas de los últimos 7 días
       for (let i = 0; i < SEED_REPORTES.length; i++) {
-        const diasAtras = i
         const fecha = new Date()
-        fecha.setDate(fecha.getDate() - diasAtras)
+        fecha.setDate(fecha.getDate() - i)
         await addDoc(col, {
           ...SEED_REPORTES[i],
           uid_reportador: 'seed',
@@ -89,22 +260,16 @@ export default function AdminPanel() {
         })
       }
       setSeedDone(true)
-    } catch (e) {
-      console.error(e)
-    }
+    } catch (e) { console.error(e) }
     setSeeding(false)
   }
 
   useEffect(() => {
     const q = query(collection(db, 'reportes'), orderBy('fecha', 'desc'))
-    const unsub = onSnapshot(q, (snap) => {
-      setReportes(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    })
-    return unsub
+    return onSnapshot(q, snap => setReportes(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
   }, [])
 
   const filtrados = filtro ? reportes.filter(r => r.nivel === filtro) : reportes
-
   const counts = {
     total: reportes.length,
     alto:  reportes.filter(r => r.nivel === 'alto').length,
@@ -120,15 +285,11 @@ export default function AdminPanel() {
         <div className="mb-6 flex items-start justify-between">
           <div>
             <h2 className="text-xl font-bold text-white mb-1">Todos los Reportes</h2>
-            <p className="text-[#8b949e] text-sm">Avistamientos registrados desde campo.</p>
+            <p className="text-[#8b949e] text-sm">Avistamientos registrados desde campo. Solo un profesional puede confirmar una plaga.</p>
           </div>
-          {/* Botón de datos de prueba — solo para desarrollo */}
           {!seedDone ? (
-            <button
-              onClick={handleSeed}
-              disabled={seeding}
-              className="flex items-center gap-2 px-4 py-2 bg-[#161b22] border border-[#30363d] hover:border-[#484f58] text-[#8b949e] hover:text-white text-xs rounded-lg transition-colors disabled:opacity-50"
-            >
+            <button onClick={handleSeed} disabled={seeding}
+              className="flex items-center gap-2 px-4 py-2 bg-[#161b22] border border-[#30363d] hover:border-[#484f58] text-[#8b949e] hover:text-white text-xs rounded-lg transition-colors disabled:opacity-50">
               {seeding ? '⏳ Cargando...' : '🧪 Cargar datos de prueba'}
             </button>
           ) : (
@@ -136,44 +297,43 @@ export default function AdminPanel() {
           )}
         </div>
 
-        {/* HU-CONSENSO: Panel de focos activos */}
+        {/* Focos activos */}
         {clusters.length > 0 && (
           <div className="mb-6 bg-[#161b22] border border-orange-500/30 rounded-xl p-4">
             <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
               🔬 Focos Detectados por Consenso Espacio-Temporal
-              <span className="ml-1 text-xs bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded">
+              <span className="text-xs bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded">
                 {clusters.length}
               </span>
             </h3>
             <div className="grid grid-cols-2 gap-3">
-              {clusters.slice(0, 4).map((c, i) => {
-                const isConfirmed = c.estado === 'confirmado' || c.estado === 'confirmado_algoritmico'
-                return (
-                  <div key={i} className={`rounded-lg p-3 border text-xs ${
-                    isConfirmed ? 'bg-red-500/10 border-red-500/30' : 'bg-orange-500/10 border-orange-500/30'
-                  }`}>
-                    <p className={`font-semibold ${isConfirmed ? 'text-red-400' : 'text-orange-400'}`}>
-                      {isConfirmed ? '🔴' : '🟠'} {c.plaga}
-                    </p>
-                    <p className="text-[#8b949e] mt-1">{c.cantidad} reportes · radio {CONSENSUS_CONFIG.radioKm} km</p>
-                    <p className="text-[#484f58]">{ESTADO_LABEL[c.estado] ?? c.estado}</p>
-                  </div>
-                )
-              })}
+              {clusters.slice(0, 4).map((c, i) => (
+                <div key={i} className={`rounded-lg p-3 border text-xs ${
+                  c.estado === 'confirmado'
+                    ? 'bg-red-500/10 border-red-500/30'
+                    : 'bg-orange-500/10 border-orange-500/30'
+                }`}>
+                  <p className={`font-semibold ${c.estado === 'confirmado' ? 'text-red-400' : 'text-orange-400'}`}>
+                    {c.estado === 'confirmado' ? '🔴' : '🟠'} {c.plaga}
+                  </p>
+                  <p className="text-[#8b949e] mt-1">{c.cantidad} reportes · radio {CONSENSUS_CONFIG.radioKm} km</p>
+                  <p className="text-[#484f58]">{ESTADO_LABEL[c.estado]}</p>
+                </div>
+              ))}
             </div>
-            <p className="text-[#484f58] text-xs mt-3 pt-2 border-t border-[#21262d]">
-              Protocolo: X={CONSENSUS_CONFIG.minReportes} rep · Y={CONSENSUS_CONFIG.radioKm} km · Z={CONSENSUS_CONFIG.ventanaHoras} h · Umbral crítico: {CONSENSUS_CONFIG.umbralCritico} rep en {CONSENSUS_CONFIG.ventanaCriticaHoras} h
+            <p className="text-[#484f58] text-xs mt-2 pt-2 border-t border-[#21262d]">
+              La confirmación definitiva requiere validación de un profesional agrónomo.
             </p>
           </div>
         )}
 
-        {/* Contadores */}
-        <div className="grid grid-cols-4 gap-3 mb-6">
+        {/* KPIs de nivel */}
+        <div className="grid grid-cols-4 gap-3 mb-4">
           {[
-            { label: 'Total', value: counts.total, color: 'text-white' },
-            { label: 'Alto riesgo',  value: counts.alto,  color: 'text-red-400' },
-            { label: 'Medio riesgo', value: counts.medio, color: 'text-yellow-400' },
-            { label: 'Bajo riesgo',  value: counts.bajo,  color: 'text-green-400' },
+            { label: 'Total',       value: counts.total, color: 'text-white' },
+            { label: 'Alto riesgo', value: counts.alto,  color: 'text-red-400' },
+            { label: 'Medio',       value: counts.medio, color: 'text-yellow-400' },
+            { label: 'Bajo',        value: counts.bajo,  color: 'text-green-400' },
           ].map(c => (
             <div key={c.label} className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
               <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
@@ -182,7 +342,7 @@ export default function AdminPanel() {
           ))}
         </div>
 
-        {/* Contadores de validación (consenso) */}
+        {/* KPIs de consenso */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
             <p className="text-2xl font-bold text-yellow-400">{countSospechosos}</p>
@@ -194,7 +354,7 @@ export default function AdminPanel() {
           </div>
           <div className="bg-[#161b22] border border-red-500/30 rounded-xl p-4">
             <p className="text-2xl font-bold text-red-400">{countConfirmados}</p>
-            <p className="text-[#8b949e] text-xs mt-0.5">🔴 Confirmados</p>
+            <p className="text-[#8b949e] text-xs mt-0.5">🔴 Confirmados por Profesional</p>
           </div>
         </div>
 
@@ -221,10 +381,9 @@ export default function AdminPanel() {
                 <th className="text-left px-4 py-3">Plaga</th>
                 <th className="text-left px-4 py-3">Finca</th>
                 <th className="text-left px-4 py-3">Nivel</th>
-                <th className="text-left px-4 py-3">Coordenadas</th>
                 <th className="text-left px-4 py-3">Reportado por</th>
                 <th className="text-left px-4 py-3">Fecha</th>
-                <th className="text-left px-4 py-3">Estado</th>
+                <th className="text-left px-4 py-3">Foto</th>
                 <th className="text-left px-4 py-3">Validación</th>
                 <th className="text-left px-4 py-3">Acción</th>
               </tr>
@@ -232,7 +391,7 @@ export default function AdminPanel() {
             <tbody>
               {filtrados.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-[#484f58] py-10">
+                  <td colSpan={8} className="text-center text-[#484f58] py-10">
                     No hay reportes registrados.
                   </td>
                 </tr>
@@ -240,8 +399,11 @@ export default function AdminPanel() {
               {filtrados.map(r => {
                 const archivado = r.estado === 'archivado'
                 const enCurso   = archivando.has(r.id)
+                const ev        = estadosConsenso.get(r.id) ?? 'sospechoso'
+                const enVal     = validando.has(r.id)
                 return (
-                  <tr key={r.id} className={`border-b border-[#21262d] hover:bg-[#1c2128] transition-colors ${archivado ? 'opacity-50' : ''}`}>
+                  <tr key={r.id}
+                    className={`border-b border-[#21262d] hover:bg-[#1c2128] transition-colors ${archivado ? 'opacity-50' : ''}`}>
                     <td className="px-4 py-3 text-[#c9d1d9] font-medium">{r.plaga}</td>
                     <td className="px-4 py-3 text-[#8b949e]">{r.finca}</td>
                     <td className="px-4 py-3">
@@ -249,98 +411,86 @@ export default function AdminPanel() {
                         {r.nivel}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#8b949e]">
-                      {r.lat?.toFixed(5)}, {r.lng?.toFixed(5)}
-                    </td>
-                    <td className="px-4 py-3 text-[#8b949e] text-xs truncate max-w-[140px]">
+                    <td className="px-4 py-3 text-[#8b949e] text-xs truncate max-w-[130px]">
                       {r.email_reportador}
                     </td>
                     <td className="px-4 py-3 text-[#484f58] text-xs">
-                      {r.fecha instanceof Date
-                        ? r.fecha.toLocaleDateString('es-CO')
-                        : r.fecha?.toDate?.()?.toLocaleDateString('es-CO') ?? '—'}
+                      {r.fecha?.toDate?.()?.toLocaleDateString('es-CO') ?? '—'}
                     </td>
+
+                    {/* Miniatura foto */}
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleArchivo(r)}
-                        disabled={enCurso}
-                        title={archivado ? 'Restaurar a activo' : 'Archivar reporte'}
-                        className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-50 ${
-                          archivado
-                            ? 'border-[#10b981]/40 text-[#10b981] hover:bg-[#10b981]/10'
-                            : 'border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400'
-                        }`}
-                      >
-                        {enCurso ? '⏳' : archivado ? '↩ Restaurar' : '📦 Archivar'}
-                      </button>
+                      {r.imagenBase64 ? (
+                        <button onClick={() => setDetalleReporte(r)} title="Ver foto">
+                          <img src={r.imagenBase64} alt="foto"
+                            className="w-10 h-10 object-cover rounded-lg border border-[#30363d] hover:border-[#10b981] transition-colors" />
+                        </button>
+                      ) : (
+                        <span className="text-[#484f58] text-xs">—</span>
+                      )}
                     </td>
-                    {/* HU-CONSENSO: estado calculado */}
+
+                    {/* Validación */}
                     <td className="px-4 py-3">
-                      {(() => {
-                        const ev = estadosConsenso.get(r.id) ?? 'sospechoso'
-                        const label = ESTADO_LABEL[ev] ?? ev
-                        const color = ESTADO_COLOR[ev] ?? '#8b949e'
-                        return (
-                          <span className="text-xs font-medium" style={{ color }}>
-                            {{
-                              sospechoso:             '🟡',
-                              alerta_preventiva:      '🟠',
-                              confirmado_algoritmico: '🔴',
-                              confirmado:             '🔴',
-                              descartado:             '⬛',
-                            }[ev] ?? '●'}{' '}{label}
-                          </span>
-                        )
-                      })()}
+                      <span className="text-xs font-medium" style={{ color: ESTADO_COLOR[ev] }}>
+                        {{
+                          sospechoso:        '🟡',
+                          alerta_preventiva: '🟠',
+                          confirmado:        '🔴',
+                          descartado:        '⬛',
+                        }[ev] ?? '●'}{' '}
+                        {ESTADO_LABEL[ev]?.replace(/^[^ ]+ /, '') ?? ev}
+                      </span>
                     </td>
-                    {/* HU-CONSENSO: botones Confirmar / Descartar */}
+
+                    {/* Acciones */}
                     <td className="px-4 py-3">
-                      {(() => {
-                        const ev      = estadosConsenso.get(r.id) ?? 'sospechoso'
-                        const enVal   = validando.has(r.id)
-                        if (ev === 'descartado') {
-                          return (
-                            <button
-                              onClick={() => cambiarValidacion(r, 'sospechoso')}
-                              disabled={enVal}
-                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#484f58] disabled:opacity-50"
-                            >
-                              {enVal ? '⏳' : '↩ Reactivar'}
-                            </button>
-                          )
-                        }
-                        if (ev === 'confirmado') {
-                          return (
-                            <button
-                              onClick={() => cambiarValidacion(r, 'sospechoso')}
-                              disabled={enVal}
-                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:text-yellow-400 hover:border-yellow-500/40 disabled:opacity-50"
-                            >
-                              {enVal ? '⏳' : '↩ Revertir'}
-                            </button>
-                          )
-                        }
-                        return (
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => cambiarValidacion(r, 'confirmado')}
-                              disabled={enVal}
+                      <div className="flex items-center gap-1.5">
+                        {/* Ver detalle */}
+                        <button onClick={() => setDetalleReporte(r)}
+                          className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#8b949e] hover:border-[#10b981]/40 hover:text-[#10b981] transition-colors">
+                          👁 Ver
+                        </button>
+
+                        {/* Archivar */}
+                        <button onClick={() => toggleArchivo(r)} disabled={enCurso}
+                          title={archivado ? 'Restaurar' : 'Archivar'}
+                          className={`text-xs px-2 py-1 rounded border transition-colors disabled:opacity-50 ${
+                            archivado
+                              ? 'border-[#10b981]/40 text-[#10b981] hover:bg-[#10b981]/10'
+                              : 'border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400'
+                          }`}>
+                          {enCurso ? '⏳' : archivado ? '↩' : '📦'}
+                        </button>
+
+                        {/* Confirmar/Descartar rápido */}
+                        {ev !== 'descartado' && ev !== 'confirmado' && (
+                          <>
+                            <button onClick={() => cambiarValidacion(r, 'confirmado')} disabled={enVal}
                               title="Confirmar como plaga real"
-                              className="text-xs px-2 py-1 rounded border border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-50"
-                            >
-                              {enVal ? '⏳' : '✅ Confirmar'}
+                              className="text-xs px-2 py-1 rounded border border-green-500/40 text-green-400 hover:bg-green-500/10 disabled:opacity-50">
+                              {enVal ? '⏳' : '✅'}
                             </button>
-                            <button
-                              onClick={() => cambiarValidacion(r, 'descartado')}
-                              disabled={enVal}
-                              title="Descartar (falso positivo)"
-                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400 disabled:opacity-50"
-                            >
+                            <button onClick={() => cambiarValidacion(r, 'descartado')} disabled={enVal}
+                              title="Descartar"
+                              className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:border-red-500/40 hover:text-red-400 disabled:opacity-50">
                               ✕
                             </button>
-                          </div>
-                        )
-                      })()}
+                          </>
+                        )}
+                        {ev === 'confirmado' && (
+                          <button onClick={() => cambiarValidacion(r, 'sospechoso')} disabled={enVal}
+                            className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#484f58] hover:text-yellow-400 hover:border-yellow-500/40 disabled:opacity-50">
+                            ↩
+                          </button>
+                        )}
+                        {ev === 'descartado' && (
+                          <button onClick={() => cambiarValidacion(r, 'sospechoso')} disabled={enVal}
+                            className="text-xs px-2 py-1 rounded border border-[#30363d] text-[#8b949e] hover:text-white hover:border-[#484f58] disabled:opacity-50">
+                            ↩
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -349,6 +499,19 @@ export default function AdminPanel() {
           </table>
         </div>
       </main>
+
+      {/* Modal de detalle */}
+      {detalleReporte && (
+        <ModalDetalle
+          reporte={detalleReporte}
+          estadoConsenso={estadosConsenso.get(detalleReporte.id)}
+          onClose={() => setDetalleReporte(null)}
+          validando={validando.has(detalleReporte.id)}
+          onConfirmar={() => cambiarValidacion(detalleReporte, 'confirmado')}
+          onDescartar={() => cambiarValidacion(detalleReporte, 'descartado')}
+          onRevertir={() => cambiarValidacion(detalleReporte, 'sospechoso')}
+        />
+      )}
     </div>
   )
 }

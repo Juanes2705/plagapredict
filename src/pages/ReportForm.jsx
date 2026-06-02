@@ -1,4 +1,4 @@
-// HU-04 + HU-05 + HU-08 + HU-IA: Formulario de reporte con GPS + clima + Gemini Vision
+// HU-04 + HU-05 + HU-08 + HU-IA: Formulario de reporte con GPS + clima + IA Vision
 import { useState, useEffect, useRef } from 'react'
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
@@ -205,6 +205,29 @@ function PlagaImageCard({ wikiTitle, cientifico, cultivos }) {
   )
 }
 
+// ── Comprimir imagen con Canvas (sin Firebase Storage) ───────────────────────
+/**
+ * Redimensiona y comprime una imagen a JPEG base64.
+ * Resultado típico: 50-150 KB → cabe en un documento Firestore (límite 1 MB).
+ */
+function comprimirImagen(file, maxPx = 900, quality = 0.78) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      const ratio  = Math.min(maxPx / img.width, maxPx / img.height, 1)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * ratio)
+      canvas.height = Math.round(img.height * ratio)
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen')) }
+    img.src = url
+  })
+}
+
 // ── Barra de confianza ────────────────────────────────────────────────────────
 function ConfidenceBar({ value }) {
   const color = value >= 75 ? '#10b981' : value >= 50 ? '#f59e0b' : '#ef4444'
@@ -337,11 +360,12 @@ export default function ReportForm() {
   // Para IA confirmada: usar nombre científico de Gemini como wikiTitle
   const wikiTitleIA = sugerencia?.nombreCientifico ?? sugerencia?.nombreComun ?? null
 
-  // Validación del botón enviar
+  // Validación del botón enviar (imagen obligatoria)
   const puedeEnviar = !!coords
     && !!plagaFinal
-    && submitStatus !== 'loading'
+    && !!imagenFile          // imagen requerida
     && iaEstado !== 'analyzing'
+    && submitStatus !== 'loading'
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e) => {
@@ -352,22 +376,34 @@ export default function ReportForm() {
 
     setSubmitStatus('loading')
     try {
+      // 1. Comprimir imagen con Canvas → base64 (sin Firebase Storage)
+      let imagenBase64 = null
+      if (imagenFile) {
+        try {
+          imagenBase64 = await comprimirImagen(imagenFile)
+        } catch (imgErr) {
+          console.warn('No se pudo comprimir la imagen:', imgErr.message)
+        }
+      }
+
+      // 2. Guardar reporte en Firestore (imagen incluida como base64)
       await addDoc(collection(db, 'reportes'), {
-        plaga:            plagaFinal,
-        finca:            form.finca.trim(),
-        nivel:            form.nivel,
-        descripcion:      form.descripcion,
-        lat:              coords.lat,
-        lng:              coords.lng,
-        precision_m:      coords.accuracy,
-        uid_reportador:   user.uid,
-        email_reportador: user.email,
-        temp_c:           clima?.temp_c     ?? null,
-        humedad:          clima?.humedad    ?? null,
-        viento_kmh:       clima?.viento_kmh ?? null,
-        viento_dir:       clima?.viento_dir ?? null,
-        fecha:            serverTimestamp(),
+        plaga:             plagaFinal,
+        finca:             form.finca.trim(),
+        nivel:             form.nivel,
+        descripcion:       form.descripcion,
+        lat:               coords.lat,
+        lng:               coords.lng,
+        precision_m:       coords.accuracy,
+        uid_reportador:    user.uid,
+        email_reportador:  user.email,
+        temp_c:            clima?.temp_c     ?? null,
+        humedad:           clima?.humedad    ?? null,
+        viento_kmh:        clima?.viento_kmh ?? null,
+        viento_dir:        clima?.viento_dir ?? null,
+        fecha:             serverTimestamp(),
         estado_validacion: 'sospechoso',
+        ...(imagenBase64 ? { imagenBase64 } : {}),
         ...(iaEstado === 'confirmed' && sugerencia ? {
           ia_identificacion: {
             nombreComun:          sugerencia.nombreComun,
@@ -375,10 +411,11 @@ export default function ReportForm() {
             porcentajeConfianza:  sugerencia.porcentajeConfianza,
             descripcionDano:      sugerencia.descripcionDano ?? null,
             confirmadaPorUsuario: true,
-            modelo:               sugerencia.modeloUsado ?? 'gemini',
+            modelo:               sugerencia.modeloUsado ?? 'ia',
           },
         } : {}),
       })
+
       setSubmitStatus('success')
       setForm({ finca: '', plaga: '', plagaPersonalizada: '', nivel: 'medio', descripcion: '' })
       setClima(null)
@@ -450,8 +487,8 @@ export default function ReportForm() {
           }`}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <span>🤖</span> Identificación por IA
-                <span className="text-xs font-normal text-[#484f58]">Gemini Vision · opcional</span>
+                <span>📷</span> Fotografía de la plaga
+                <span className="text-xs font-normal text-red-400">* obligatoria</span>
               </h3>
               {iaEstado !== 'idle' && (
                 <button onClick={resetIA} className="text-xs text-[#484f58] hover:text-white underline">
@@ -464,13 +501,14 @@ export default function ReportForm() {
             {iaEstado === 'idle' && (
               <div>
                 <p className="text-[#8b949e] text-xs mb-3">
-                  Sube una fotografía de la plaga y Gemini la identificará automáticamente.
+                  Sube una foto clara de la plaga. La IA intentará identificarla automáticamente.
+                  <span className="text-red-400"> La foto es requerida para enviar el reporte.</span>
                 </p>
                 <input ref={inputFileRef} type="file" accept="image/jpeg,image/png,image/webp"
                   className="hidden" onChange={handleImageChange} />
                 <button type="button" onClick={() => inputFileRef.current?.click()}
-                  className="flex items-center gap-2 px-4 py-2 bg-[#0d1117] border border-dashed border-[#484f58] hover:border-[#10b981] text-[#8b949e] hover:text-[#10b981] text-sm rounded-lg transition-colors w-full justify-center">
-                  📷 Subir fotografía para identificación
+                  className="flex items-center gap-2 px-4 py-2 bg-[#0d1117] border-2 border-dashed border-red-500/40 hover:border-[#10b981] text-[#8b949e] hover:text-[#10b981] text-sm rounded-lg transition-colors w-full justify-center">
+                  📷 Subir fotografía de la plaga
                 </button>
               </div>
             )}
@@ -562,6 +600,33 @@ export default function ReportForm() {
                   cientifico={sugerencia.nombreCientifico}
                   cultivos={null}
                 />
+              </div>
+            )}
+
+            {/* rejected — foto sigue adjunta, identificación manual */}
+            {iaEstado === 'rejected' && imagenPreview && (
+              <div className="space-y-2">
+                <img
+                  src={imagenPreview}
+                  alt="Fotografía adjunta"
+                  className="w-full h-36 object-cover rounded-lg border border-[#30363d]"
+                />
+                <div className="bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[#10b981] text-sm">📷</span>
+                    <div>
+                      <p className="text-[#c9d1d9] text-xs font-medium">Foto adjunta al reporte ✓</p>
+                      <p className="text-[#484f58] text-xs">Se guardará junto con tu reporte</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetIA}
+                    className="text-[#484f58] hover:text-red-400 text-xs underline transition-colors"
+                  >
+                    Cambiar foto
+                  </button>
+                </div>
               </div>
             )}
 
@@ -790,9 +855,14 @@ export default function ReportForm() {
                 📍 Captura tu ubicación GPS para habilitar el envío.
               </p>
             )}
-            {coords && !plagaFinal && iaEstado === 'idle' && (
+            {coords && !imagenFile && (
+              <p className="text-red-400/70 text-xs text-center">
+                📷 Sube una fotografía de la plaga para habilitar el envío.
+              </p>
+            )}
+            {coords && imagenFile && !plagaFinal && (
               <p className="text-[#484f58] text-xs text-center">
-                Sube una foto para identificación automática, o selecciona la plaga del listado.
+                Selecciona el tipo de plaga del listado o usa la identificación de IA.
               </p>
             )}
           </form>
