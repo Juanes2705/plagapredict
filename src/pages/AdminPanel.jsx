@@ -60,25 +60,50 @@ function ModalDetalle({ reporte, estadoConsenso, onClose, onConfirmar, onDescart
           </div>
         </div>
 
-        {/* Imagen de la plaga */}
-        {reporte.imagenBase64 ? (
-          <div className="mx-5 mt-4 rounded-xl overflow-hidden border border-[#30363d] bg-[#0d1117]">
-            <img
-              src={reporte.imagenBase64}
-              alt={`Fotografía de ${reporte.plaga}`}
-              className="w-full max-h-72 object-cover"
-              onError={e => { e.currentTarget.parentElement.style.display = 'none' }}
-            />
-            <p className="text-center text-[#484f58] text-xs py-1.5">Fotografía del avistamiento</p>
-          </div>
-        ) : (
-          <div className="mx-5 mt-4 rounded-xl border border-dashed border-[#30363d] bg-[#0d1117] flex items-center justify-center py-8">
-            <div className="text-center text-[#484f58]">
-              <span className="text-3xl block mb-1">📷</span>
-              <span className="text-xs">Sin fotografía adjunta</span>
+        {/* Galería de imágenes */}
+        {(() => {
+          // Soporta: imagenesBase64 (array nuevo) o imagenBase64 (campo legacy)
+          const imgs = reporte.imagenesBase64?.length > 0
+            ? reporte.imagenesBase64
+            : reporte.imagenBase64
+            ? [reporte.imagenBase64]
+            : []
+
+          if (imgs.length === 0) return (
+            <div className="mx-5 mt-4 rounded-xl border border-dashed border-[#30363d] bg-[#0d1117] flex items-center justify-center py-8">
+              <div className="text-center text-[#484f58]">
+                <span className="text-3xl block mb-1">📷</span>
+                <span className="text-xs">Sin fotografía adjunta</span>
+              </div>
             </div>
-          </div>
-        )}
+          )
+
+          return (
+            <div className="mx-5 mt-4 space-y-2">
+              {/* Foto principal grande */}
+              <div className="rounded-xl overflow-hidden border border-[#30363d] bg-[#0d1117]">
+                <img
+                  src={imgs[0]}
+                  alt={`Fotografía de ${reporte.plaga}`}
+                  className="w-full max-h-64 object-cover"
+                />
+              </div>
+              {/* Fotos adicionales en fila */}
+              {imgs.length > 1 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {imgs.slice(1).map((src, i) => (
+                    <div key={i} className="rounded-lg overflow-hidden border border-[#30363d]">
+                      <img src={src} alt={`Foto ${i + 2}`} className="w-full h-20 object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-center text-[#484f58] text-xs">
+                {imgs.length} fotografía{imgs.length !== 1 ? 's' : ''} del avistamiento
+              </p>
+            </div>
+          )
+        })()}
 
         {/* Datos del reporte */}
         <div className="p-5 space-y-4">
@@ -420,14 +445,23 @@ export default function AdminPanel() {
 
                     {/* Miniatura foto */}
                     <td className="px-4 py-3">
-                      {r.imagenBase64 ? (
-                        <button onClick={() => setDetalleReporte(r)} title="Ver foto">
-                          <img src={r.imagenBase64} alt="foto"
-                            className="w-10 h-10 object-cover rounded-lg border border-[#30363d] hover:border-[#10b981] transition-colors" />
-                        </button>
-                      ) : (
-                        <span className="text-[#484f58] text-xs">—</span>
-                      )}
+                      {(() => {
+                        const src = r.imagenesBase64?.[0] ?? r.imagenBase64 ?? null
+                        const total = r.imagenesBase64?.length ?? (r.imagenBase64 ? 1 : 0)
+                        return src ? (
+                          <button onClick={() => setDetalleReporte(r)} title="Ver fotos" className="relative">
+                            <img src={src} alt="foto"
+                              className="w-10 h-10 object-cover rounded-lg border border-[#30363d] hover:border-[#10b981] transition-colors" />
+                            {total > 1 && (
+                              <span className="absolute -top-1 -right-1 bg-[#10b981] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                                {total}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-[#484f58] text-xs">—</span>
+                        )
+                      })()}
                     </td>
 
                     {/* Validación */}

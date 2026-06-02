@@ -286,6 +286,29 @@ export default function ReportForm() {
   const [iaErrorCode,   setIaErrorCode]   = useState('')   // código de error estructurado
   const [cuotaSegundos, setCuotaSegundos] = useState(0)    // cuenta regresiva 429
 
+  // ── Fotos adicionales (máx 4 extras, total 5) ─────────────────────────────
+  const inputAdicionalRef                           = useRef(null)
+  const [fotosAdicionales, setFotosAdicionales]     = useState([])  // [{file, preview}]
+  const MAX_FOTOS_ADICIONALES                       = 4
+
+  const agregarFotosAdicionales = (e) => {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+    const nuevas = files
+      .filter(f => f.type.startsWith('image/'))
+      .slice(0, MAX_FOTOS_ADICIONALES - fotosAdicionales.length)
+      .map(f => ({ file: f, preview: URL.createObjectURL(f) }))
+    setFotosAdicionales(prev => [...prev, ...nuevas])
+    if (inputAdicionalRef.current) inputAdicionalRef.current.value = ''
+  }
+
+  const eliminarFotoAdicional = (idx) => {
+    setFotosAdicionales(prev => {
+      URL.revokeObjectURL(prev[idx].preview)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
   const handleImageChange = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -343,7 +366,10 @@ export default function ReportForm() {
     setCuotaSegundos(0)
     set('plaga', '')
     set('plagaPersonalizada', '')
-    if (inputFileRef.current) inputFileRef.current.value = ''
+    fotosAdicionales.forEach(f => URL.revokeObjectURL(f.preview))
+    setFotosAdicionales([])
+    if (inputFileRef.current)     inputFileRef.current.value = ''
+    if (inputAdicionalRef.current) inputAdicionalRef.current.value = ''
   }
 
   // ── Derivados ──────────────────────────────────────────────────────────────
@@ -376,15 +402,15 @@ export default function ReportForm() {
 
     setSubmitStatus('loading')
     try {
-      // 1. Comprimir imagen con Canvas → base64 (sin Firebase Storage)
-      let imagenBase64 = null
-      if (imagenFile) {
-        try {
-          imagenBase64 = await comprimirImagen(imagenFile)
-        } catch (imgErr) {
-          console.warn('No se pudo comprimir la imagen:', imgErr.message)
-        }
+      // 1. Comprimir TODAS las imágenes con Canvas → base64
+      const todosLosFiles = [imagenFile, ...fotosAdicionales.map(f => f.file)].filter(Boolean)
+      let imagenesBase64 = []
+      try {
+        imagenesBase64 = await Promise.all(todosLosFiles.map(f => comprimirImagen(f)))
+      } catch (imgErr) {
+        console.warn('No se pudo comprimir alguna imagen:', imgErr.message)
       }
+      const imagenBase64 = imagenesBase64[0] ?? null  // primera imagen (compatibilidad)
 
       // 2. Guardar reporte en Firestore (imagen incluida como base64)
       await addDoc(collection(db, 'reportes'), {
@@ -403,7 +429,8 @@ export default function ReportForm() {
         viento_dir:        clima?.viento_dir ?? null,
         fecha:             serverTimestamp(),
         estado_validacion: 'sospechoso',
-        ...(imagenBase64 ? { imagenBase64 } : {}),
+        ...(imagenBase64   ? { imagenBase64 }   : {}),
+        ...(imagenesBase64.length > 0 ? { imagenesBase64 } : {}),
         ...(iaEstado === 'confirmed' && sugerencia ? {
           ia_identificacion: {
             nombreComun:          sugerencia.nombreComun,
@@ -419,7 +446,7 @@ export default function ReportForm() {
       setSubmitStatus('success')
       setForm({ finca: '', plaga: '', plagaPersonalizada: '', nivel: 'medio', descripcion: '' })
       setClima(null)
-      resetIA()
+      resetIA()  // también limpia fotosAdicionales
     } catch (err) {
       console.error('Error al guardar reporte:', err)
       setSubmitStatus('error')
@@ -716,6 +743,64 @@ export default function ReportForm() {
               </div>
             )}
           </div>
+
+          {/* ── Fotos adicionales (opcional, máx 4 extras) ──────────────────── */}
+          {imagenFile && iaEstado !== 'idle' && iaEstado !== 'analyzing' && (
+            <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <span>🖼️</span> Fotos adicionales
+                  <span className="text-xs font-normal text-[#484f58]">opcional · máx 4 más</span>
+                </h3>
+                <span className="text-xs text-[#484f58]">
+                  {1 + fotosAdicionales.length} / 5 foto{1 + fotosAdicionales.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Miniaturas */}
+              {fotosAdicionales.length > 0 && (
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {fotosAdicionales.map((f, idx) => (
+                    <div key={idx} className="relative group">
+                      <img
+                        src={f.preview}
+                        alt={`Foto ${idx + 2}`}
+                        className="w-full h-20 object-cover rounded-lg border border-[#30363d]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => eliminarFotoAdicional(idx)}
+                        className="absolute top-1 right-1 bg-black/70 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Botón agregar */}
+              {fotosAdicionales.length < MAX_FOTOS_ADICIONALES && (
+                <>
+                  <input
+                    ref={inputAdicionalRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    className="hidden"
+                    onChange={agregarFotosAdicionales}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => inputAdicionalRef.current?.click()}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#0d1117] border border-dashed border-[#484f58] hover:border-[#10b981] text-[#8b949e] hover:text-[#10b981] text-xs rounded-lg transition-colors w-full justify-center"
+                  >
+                    + Agregar más fotos ({MAX_FOTOS_ADICIONALES - fotosAdicionales.length} disponibles)
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* ── Formulario de datos ──────────────────────────────────────────── */}
           <form onSubmit={handleSubmit} className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 space-y-4">
