@@ -352,10 +352,50 @@ function ModalDetalle({ reporte, estadoConsenso, onClose, onConfirmar, onDescart
           {reporte.mip && !reporte.mip.evaluacionEconomica && (
             <div className="bg-[#0d1117] rounded-lg p-3 border border-dashed border-[#30363d]">
               <p className="text-[#484f58] text-xs text-center">
-                💰 Sin evaluación económica NDE registrada
+                💰 Sin evaluación económica NDE — reporte anterior al módulo MIP
               </p>
             </div>
           )}
+
+          {/* Nota de monitoreo para reportes bajo umbral */}
+          {(() => {
+            const eco = reporte.mip?.evaluacionEconomica
+            if (!eco?.nde || !eco?.umbralAccion) return null
+            const inc = reporte.mip?.incidencia_pct
+            if (inc == null) return null
+            const pct = Math.min(100, Math.round((inc / eco.nde) * 100))
+            const enVigilancia = inc >= eco.umbralAccion
+            if (estadoConsenso === 'alerta_preventiva' || estadoConsenso === 'confirmado') return null
+            return (
+              <div className={`rounded-lg p-3 border ${enVigilancia ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-[#30363d] bg-[#0d1117]'}`}>
+                <p className={`text-xs font-semibold mb-2 ${enVigilancia ? 'text-yellow-400' : 'text-[#8b949e]'}`}>
+                  {enVigilancia ? '⚡ En zona de vigilancia — preparar intervención' : '👁 En monitoreo — por debajo del umbral de acción'}
+                </p>
+                <div className="mb-1">
+                  <div className="flex justify-between text-[9px] text-[#484f58] mb-1">
+                    <span>0%</span>
+                    <span className="text-yellow-400">UA {eco.umbralAccion}%</span>
+                    <span className="text-red-400">NDE {eco.nde}%</span>
+                    <span>100%</span>
+                  </div>
+                  <div className="relative h-3 bg-[#21262d] rounded-full overflow-hidden">
+                    <div className="absolute h-full bg-green-500/20"
+                      style={{ width: `${Math.min((eco.umbralAccion / eco.nde) * 100, 100)}%` }} />
+                    <div className="absolute h-full bg-yellow-500/20"
+                      style={{ left: `${Math.min((eco.umbralAccion / eco.nde) * 100, 100)}%`, right: 0 }} />
+                    <div className="absolute h-full rounded-full"
+                      style={{ width: `${pct}%`, background: enVigilancia ? '#f59e0b' : '#10b981' }} />
+                  </div>
+                </div>
+                <p className="text-[10px] text-[#8b949e]">
+                  Incidencia actual <strong>{inc}%</strong> representa el <strong>{pct}%</strong> del NDE ({eco.nde}%).
+                  {enVigilancia
+                    ? ' Ha superado el Umbral de Acción — la intervención debe planificarse antes de alcanzar el NDE.'
+                    : ` Faltan ${Math.max(0, eco.umbralAccion - inc).toFixed(1)} puntos porcentuales para alcanzar el Umbral de Acción.`}
+                </p>
+              </div>
+            )
+          })()}
 
           {/* Descripción */}
           {reporte.descripcion && reporte.descripcion.trim() && (

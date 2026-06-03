@@ -1122,6 +1122,101 @@ export default function ReportForm() {
                 </div>
               )}
 
+              {/* ── Comparativa umbral actual vs umbrales NDE ── */}
+              {incidencia !== null && (
+                <div className="bg-[#0d1117] rounded-xl border border-[#30363d] overflow-hidden">
+                  <div className="px-3 py-2 border-b border-[#30363d]">
+                    <p className="text-[10px] text-[#484f58] font-semibold uppercase tracking-wide">
+                      Posición actual vs umbrales MIP
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 divide-x divide-[#30363d]">
+                    {/* Incidencia actual */}
+                    <div className="px-3 py-3 text-center">
+                      <p className="text-[9px] text-[#484f58] uppercase tracking-wide mb-1">Incidencia actual</p>
+                      <p className={`text-2xl font-black leading-none ${
+                        resumenEco
+                          ? resumenEco.estadoEconomico === 'plaga'      ? 'text-red-400'
+                          : resumenEco.estadoEconomico === 'vigilancia' ? 'text-yellow-400'
+                          : 'text-green-400'
+                          : 'text-white'
+                      }`}>{incidencia}%</p>
+                      <p className="text-[9px] text-[#484f58] mt-1">lo que se midió</p>
+                    </div>
+
+                    {/* Umbral de Acción */}
+                    <div className={`px-3 py-3 text-center ${resumenEco && incidencia >= resumenEco.umbralAccion ? 'bg-yellow-500/5' : ''}`}>
+                      <p className="text-[9px] text-[#484f58] uppercase tracking-wide mb-1">Umbral de Acción</p>
+                      <p className="text-2xl font-black leading-none text-yellow-400">
+                        {resumenEco ? `${resumenEco.umbralAccion}%` : '—'}
+                      </p>
+                      <p className="text-[9px] text-[#484f58] mt-1">actuar antes de aquí</p>
+                      {resumenEco && (
+                        <p className={`text-[10px] font-semibold mt-1 ${incidencia >= resumenEco.umbralAccion ? 'text-yellow-400' : 'text-[#484f58]'}`}>
+                          {incidencia >= resumenEco.umbralAccion ? '⚡ Superado' : `faltan ${(resumenEco.umbralAccion - incidencia).toFixed(1)}%`}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* NDE */}
+                    <div className={`px-3 py-3 text-center ${resumenEco && incidencia >= resumenEco.nde ? 'bg-red-500/5' : ''}`}>
+                      <p className="text-[9px] text-[#484f58] uppercase tracking-wide mb-1">NDE — Daño económico</p>
+                      <p className="text-2xl font-black leading-none text-red-400">
+                        {resumenEco ? `${resumenEco.nde}%` : '—'}
+                      </p>
+                      <p className="text-[9px] text-[#484f58] mt-1">se clasifica como plaga</p>
+                      {resumenEco && (
+                        <p className={`text-[10px] font-semibold mt-1 ${incidencia >= resumenEco.nde ? 'text-red-400' : 'text-[#484f58]'}`}>
+                          {incidencia >= resumenEco.nde ? '🔴 Superado' : `faltan ${(resumenEco.nde - incidencia).toFixed(1)}%`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Barra visual de posición */}
+                  {resumenEco && (
+                    <div className="px-3 pb-3 pt-1">
+                      <div className="relative h-2.5 bg-[#21262d] rounded-full overflow-hidden">
+                        <div className="absolute h-full bg-green-500/25 rounded-l-full"
+                          style={{ width: `${Math.min((resumenEco.umbralAccion / Math.max(resumenEco.nde, incidencia, 1)) * 100, 100)}%` }} />
+                        <div className="absolute h-full bg-yellow-500/25"
+                          style={{
+                            left: `${Math.min((resumenEco.umbralAccion / Math.max(resumenEco.nde, incidencia, 1)) * 100, 100)}%`,
+                            width: `${Math.max(0, ((resumenEco.nde - resumenEco.umbralAccion) / Math.max(resumenEco.nde, incidencia, 1)) * 100)}%`,
+                          }} />
+                        <div className="absolute h-full bg-red-500/25 rounded-r-full"
+                          style={{ left: `${Math.min((resumenEco.nde / Math.max(resumenEco.nde, incidencia, 1)) * 100, 100)}%`, right: 0 }} />
+                        {/* Marcador incidencia */}
+                        <div className="absolute top-0 h-full w-1 rounded-full"
+                          style={{
+                            left: `${Math.min((incidencia / Math.max(resumenEco.nde, incidencia, 1)) * 100, 100)}%`,
+                            background: resumenEco.estadoEconomico === 'plaga' ? '#ef4444'
+                              : resumenEco.estadoEconomico === 'vigilancia' ? '#f59e0b' : '#10b981',
+                          }} />
+                      </div>
+                      <p className="text-[9px] text-[#484f58] mt-1 text-center">
+                        {!resumenEco
+                          ? 'Completa los parámetros para ver el NDE'
+                          : resumenEco.estadoEconomico === 'plaga'
+                          ? `La incidencia supera el NDE en ${(incidencia - resumenEco.nde).toFixed(1)} puntos porcentuales`
+                          : resumenEco.estadoEconomico === 'vigilancia'
+                          ? `En zona de vigilancia — ${(resumenEco.nde - incidencia).toFixed(1)}% por debajo del NDE`
+                          : `${(resumenEco.umbralAccion - incidencia).toFixed(1)}% por debajo del Umbral de Acción`}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Si aún no hay resumenEco, mostrar la incidencia y una guía */}
+                  {!resumenEco && (
+                    <div className="px-3 pb-3">
+                      <p className="text-[10px] text-[#484f58] text-center">
+                        Completa los 4 parámetros económicos para calcular el NDE y ver los umbrales.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* ── Parámetros económicos ── */}
               <div>
                 <p className="text-xs text-[#484f58] mb-3">
@@ -1296,11 +1391,29 @@ export default function ReportForm() {
               </div>
 
               {/* Feedbacks */}
-              {submitStatus === 'success' && (
-                <p className="text-green-400 text-sm bg-green-400/10 border border-green-400/20 rounded-lg px-3 py-2">
-                  ✓ Reporte MIP enviado correctamente.{esCuarentenariaFlag ? ' ⚠️ Plaga cuarentenaria — notifica al ICA.' : ''}
-                </p>
-              )}
+              {submitStatus === 'success' && (() => {
+                // Capturamos los valores del último resumen antes del reset
+                return (
+                  <div className="rounded-xl border border-green-500/40 bg-green-500/5 p-4 space-y-3">
+                    <p className="text-green-400 text-sm font-semibold">
+                      ✓ Evaluación MIP registrada correctamente
+                    </p>
+                    {esCuarentenariaFlag && (
+                      <div className="bg-purple-500/10 border border-purple-500/40 rounded-lg px-3 py-2">
+                        <p className="text-purple-300 text-xs font-semibold">
+                          🚨 Plaga cuarentenaria — Notificar al ICA: <strong>01 8000 111 668</strong>
+                        </p>
+                      </div>
+                    )}
+                    <p className="text-[#8b949e] text-xs">
+                      El estado y los datos del umbral quedan disponibles en el
+                      {' '}<strong className="text-[#c9d1d9]">Panel de Seguimiento de Umbrales</strong>{' '}
+                      en el Dashboard y en el <strong className="text-[#c9d1d9]">Panel Admin</strong>.
+                      Puedes ver en qué porcentaje del NDE se encuentra el organismo en cualquier momento.
+                    </p>
+                  </div>
+                )
+              })()}
               {submitStatus === 'error' && (
                 <p className="text-red-400 text-sm bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">✗ Error al guardar. Intenta de nuevo.</p>
               )}

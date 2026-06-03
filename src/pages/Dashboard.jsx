@@ -757,6 +757,96 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* ── Seguimiento de Umbrales (observaciones en monitoreo) ── */}
+            {(() => {
+              // Reportes en monitoreo con evaluación económica disponible
+              const enMonitoreo = reportes.filter(r => {
+                if (r.estado === 'archivado' || r.estado_validacion === 'descartado') return false
+                const ev = estadosConsenso.get(r.id) ?? 'sospechoso'
+                if (ev !== 'sospechoso') return false
+                return r.mip?.evaluacionEconomica?.nde != null &&
+                       r.mip?.incidencia_pct        != null
+              })
+              if (enMonitoreo.length === 0) return null
+
+              return (
+                <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 shrink-0">
+                  <h3 className="font-semibold text-sm text-white mb-1 flex items-center gap-2">
+                    👁 Seguimiento de Umbrales
+                    <span className="ml-auto text-[10px] bg-[#21262d] text-[#8b949e] border border-[#30363d] px-1.5 py-0.5 rounded">
+                      {enMonitoreo.length}
+                    </span>
+                  </h3>
+                  <p className="text-[#484f58] text-[10px] mb-3">
+                    Organismos detectados por debajo del NDE — no generan alerta, pero se monitorean.
+                  </p>
+                  <div className="space-y-3">
+                    {enMonitoreo.slice(0, 5).map(r => {
+                      const eco        = r.mip.evaluacionEconomica
+                      const inc        = r.mip.incidencia_pct
+                      const nde        = eco.nde
+                      const ua         = eco.umbralAccion
+                      const pct        = Math.min(100, Math.round((inc / nde) * 100))
+                      const enVigilancia = inc >= ua
+                      // color de la barra según proximidad al umbral
+                      const barColor   = enVigilancia ? '#f59e0b' : pct > 50 ? '#f97316' : '#10b981'
+
+                      return (
+                        <div key={r.id} className={`rounded-lg p-2.5 border ${
+                          enVigilancia ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-[#30363d] bg-[#0d1117]'
+                        }`}>
+                          <div className="flex items-start justify-between gap-1 mb-1.5">
+                            <div className="min-w-0">
+                              <p className="text-[#c9d1d9] text-xs font-medium truncate">{r.plaga}</p>
+                              <p className="text-[#484f58] text-[10px] truncate">{r.finca}</p>
+                            </div>
+                            <span className={`text-[10px] font-bold shrink-0 ${enVigilancia ? 'text-yellow-400' : 'text-[#8b949e]'}`}>
+                              {enVigilancia ? '⚡ Vigilancia' : '👁 Monitoreo'}
+                            </span>
+                          </div>
+
+                          {/* Barra de proximidad al NDE */}
+                          <div className="mb-1">
+                            <div className="flex justify-between text-[9px] text-[#484f58] mb-0.5">
+                              <span>0%</span>
+                              <span style={{ color: '#f59e0b' }}>UA {ua}%</span>
+                              <span style={{ color: '#ef4444' }}>NDE {nde}%</span>
+                            </div>
+                            <div className="relative h-2 bg-[#21262d] rounded-full overflow-hidden">
+                              {/* Zona verde hasta UA */}
+                              <div className="absolute h-full bg-green-500/20"
+                                style={{ width: `${Math.min((ua / nde) * 100, 100)}%` }} />
+                              {/* Zona amarilla UA→NDE */}
+                              <div className="absolute h-full bg-yellow-500/20"
+                                style={{ left: `${Math.min((ua / nde) * 100, 100)}%`, right: 0 }} />
+                              {/* Barra de incidencia actual */}
+                              <div className="absolute h-full rounded-full transition-all duration-500"
+                                style={{ width: `${pct}%`, background: barColor }} />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-[#8b949e]">
+                              Incidencia: <strong style={{ color: barColor }}>{inc}%</strong>
+                            </span>
+                            <span className="text-[#484f58]">
+                              {pct}% del NDE
+                              {enVigilancia && <span className="text-yellow-400 ml-1">— Preparar intervención</span>}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {enMonitoreo.length > 5 && (
+                    <p className="text-[#484f58] text-[10px] text-center mt-2">
+                      +{enMonitoreo.length - 5} organismos más en monitoreo — ver Panel Admin
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Alertas activas */}
             <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
               <h3 className="font-semibold text-sm text-white mb-3">
