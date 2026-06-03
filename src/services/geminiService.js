@@ -12,17 +12,22 @@ const HF_KEY     = import.meta.env.VITE_HF_API_KEY     ?? ''
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? ''
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
+// Prompt actualizado con criterios MIP / ICA Colombia
 const PROMPT =
-  'Eres un experto fitosanitario de Colombia (Valle del Cauca).\n' +
-  'Analiza la imagen e identifica el insecto, plaga o enfermedad vegetal.\n\n' +
+  'Eres un experto fitosanitario de Colombia (Valle del Cauca), especializado en Manejo Integrado de Plagas (MIP) según los criterios del ICA.\n' +
+  'Analiza la imagen e identifica el organismo plaga o enfermedad vegetal.\n\n' +
   'Responde ÚNICAMENTE con este objeto JSON (sin markdown, sin texto extra):\n' +
-  '{"nombreComun":"...","nombreCientifico":"...","porcentajeConfianza":0,"descripcionDano":"..."}\n\n' +
+  '{"nombreComun":"...","nombreCientifico":"...","tipoOrganismo":"...","porcentajeConfianza":0,"descripcionDano":"..."}\n\n' +
   'Reglas:\n' +
-  '- Plaga clara → porcentajeConfianza 70-100\n' +
-  '- Imagen borrosa → porcentajeConfianza 30-69\n' +
-  '- Sin plaga → nombreComun "No identificado", nombreCientifico "—", porcentajeConfianza 0\n' +
-  '- porcentajeConfianza es número entero\n' +
-  '- Todo en español'
+  '- nombreComun: nombre común en español\n' +
+  '- nombreCientifico: nombre científico (binomial)\n' +
+  '- tipoOrganismo: UNO de estos valores exactos según clasificación ICA: "Insecto", "Ácaro", "Nematodo", "Hongo", "Bacteria", "Virus", "Maleza", "Otro"\n' +
+  '- porcentajeConfianza: número entero 0-100\n' +
+  '- descripcionDano: síntomas que causa en el cultivo (máx 2 oraciones)\n' +
+  '- Plaga claramente visible → porcentajeConfianza 70-100\n' +
+  '- Imagen borrosa o dudosa → porcentajeConfianza 30-69\n' +
+  '- Sin plaga visible → nombreComun "No identificado", nombreCientifico "—", tipoOrganismo "Otro", porcentajeConfianza 0\n' +
+  '- Todo en español colombiano'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 function parsearJSON(text) {
@@ -36,6 +41,7 @@ function normalizarRespuesta(parsed, modeloUsado) {
   return {
     nombreComun:         String(parsed.nombreComun         ?? 'No identificado'),
     nombreCientifico:    String(parsed.nombreCientifico    ?? '—'),
+    tipoOrganismo:       parsed.tipoOrganismo ? String(parsed.tipoOrganismo) : undefined,
     porcentajeConfianza: Math.max(0, Math.min(100, Math.round(Number(parsed.porcentajeConfianza ?? 0)))),
     descripcionDano:     parsed.descripcionDano ? String(parsed.descripcionDano) : undefined,
     modeloUsado,

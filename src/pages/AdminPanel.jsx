@@ -144,6 +144,75 @@ function ModalDetalle({ reporte, estadoConsenso, onClose, onConfirmar, onDescart
             </div>
           )}
 
+          {/* Criterios MIP */}
+          {reporte.mip && (
+            <div className="bg-[#0d1117] rounded-lg p-3 space-y-3">
+              <p className="text-[#484f58] text-xs font-semibold mb-2">📊 Evaluación MIP (ICA Colombia)</p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Cultivo afectado</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium">{reporte.mip.cultivo ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Tipo de organismo (ICA)</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium">{reporte.mip.tipoOrganismo ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Fase fenológica</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium">{reporte.mip.faseFenologica ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Parte afectada</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium">
+                    {Array.isArray(reporte.mip.parteAfectada) ? reporte.mip.parteAfectada.join(', ') : '—'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Incidencia */}
+              <div className={`rounded-lg px-3 py-2 border ${
+                (reporte.mip.incidencia_pct ?? 0) >= 30 ? 'border-red-500/30 bg-red-500/5'
+                : (reporte.mip.incidencia_pct ?? 0) >= 10 ? 'border-yellow-500/30 bg-yellow-500/5'
+                : 'border-green-500/30 bg-green-500/5'
+              }`}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[#484f58] text-[10px]">Incidencia</span>
+                  <span className={`text-sm font-bold ${
+                    (reporte.mip.incidencia_pct ?? 0) >= 30 ? 'text-red-400'
+                    : (reporte.mip.incidencia_pct ?? 0) >= 10 ? 'text-yellow-400' : 'text-green-400'
+                  }`}>{reporte.mip.incidencia_pct ?? '—'}%</span>
+                </div>
+                <p className="text-[#484f58] text-[10px]">
+                  {reporte.mip.plantasAfectadas ?? '?'} de {reporte.mip.plantasEvaluadas ?? '?'} plantas evaluadas presentan síntomas
+                </p>
+              </div>
+
+              {/* Severidad */}
+              <div className="flex gap-2 items-center">
+                <span className="text-[#484f58] text-[10px]">Severidad:</span>
+                {[1,2,3,4].map(n => (
+                  <span key={n} className={`w-6 h-6 rounded text-xs flex items-center justify-center font-bold ${
+                    n === reporte.mip.severidad
+                      ? n >= 3 ? 'bg-red-500/30 text-red-400' : n >= 2 ? 'bg-yellow-500/30 text-yellow-400' : 'bg-green-500/30 text-green-400'
+                      : 'bg-[#161b22] text-[#484f58]'
+                  }`}>{n}</span>
+                ))}
+                <span className="text-[#484f58] text-[10px] ml-1">
+                  {reporte.mip.severidad === 1 ? '— Leve' : reporte.mip.severidad === 2 ? '— Moderado' : reporte.mip.severidad === 3 ? '— Severo' : reporte.mip.severidad === 4 ? '— Muy severo' : ''}
+                </span>
+              </div>
+
+              <p className="text-[#484f58] text-[10px]">
+                Nivel calculado automáticamente según umbrales de daño económico ICA:
+                <span className={`ml-1 font-semibold ${
+                  reporte.mip.nivelCalculado === 'alto' ? 'text-red-400'
+                  : reporte.mip.nivelCalculado === 'medio' ? 'text-yellow-400' : 'text-green-400'
+                }`}>{(reporte.mip.nivelCalculado ?? reporte.nivel ?? '—').toUpperCase()}</span>
+              </p>
+            </div>
+          )}
+
           {/* Descripción */}
           {reporte.descripcion && reporte.descripcion.trim() && (
             <div className="bg-[#0d1117] rounded-lg p-3">
