@@ -51,26 +51,34 @@ function formatFecha(fecha) {
 function ColorMarker({ r, estadoConsenso }) {
   const color = nivelColor[r.nivel] ?? '#8b949e'
 
+  // Para plagas cuarentenarias, forzar color morado independientemente del nivel
+  const esCuarentenaria = r.mip?.clasificacionICA?.startsWith('cuarentenaria')
+  const markerColor = esCuarentenaria ? '#a855f7' : color
+
   // Apariencia del marcador según estado de consenso
   const markerHtml = (() => {
     const base = 'width:14px;height:14px;border-radius:50%;cursor:pointer;'
+    if (esCuarentenaria) {
+      // Cuarentenaria: morado con doble anillo pulsante — máxima visibilidad
+      return `<div style="${base}width:16px;height:16px;background:#a855f7;border:3px solid white;box-shadow:0 0 0 5px #a855f750,0 0 20px #a855f7;animation:pulse 1.5s infinite"></div>`
+    }
     switch (estadoConsenso) {
       case 'sospechoso':
         // Aislado: tenue, borde discontinuo, sin confirmar
-        return `<div style="${base}background:${color}35;border:2px dashed ${color};opacity:0.65"></div>`
+        return `<div style="${base}background:${markerColor}35;border:2px dashed ${markerColor};opacity:0.65"></div>`
       case 'alerta_preventiva':
         // Cluster preventivo: naranja pulsante
-        return `<div style="${base}background:${color};border:3px solid #f97316;box-shadow:0 0 0 4px #f9731630,0 0 10px ${color}80"></div>`
+        return `<div style="${base}background:${markerColor};border:3px solid #f97316;box-shadow:0 0 0 4px #f9731630,0 0 10px ${markerColor}80"></div>`
       case 'confirmado_algoritmico':
         // Confirmado por el sistema: rojo brillante con doble anillo
-        return `<div style="${base}width:16px;height:16px;background:${color};border:2px solid white;box-shadow:0 0 0 3px ${color}60,0 0 14px ${color}"></div>`
+        return `<div style="${base}width:16px;height:16px;background:${markerColor};border:2px solid white;box-shadow:0 0 0 3px ${markerColor}60,0 0 14px ${markerColor}"></div>`
       case 'confirmado':
         // Confirmado por agrónomo: máxima prominencia
-        return `<div style="${base}width:16px;height:16px;background:${color};border:3px solid white;box-shadow:0 0 0 4px ${color}80,0 0 18px ${color}"></div>`
+        return `<div style="${base}width:16px;height:16px;background:${markerColor};border:3px solid white;box-shadow:0 0 0 4px ${markerColor}80,0 0 18px ${markerColor}"></div>`
       case 'descartado':
         return `<div style="${base}background:#484f58;border:1px solid #30363d;opacity:0.25"></div>`
       default:
-        return `<div style="${base}background:${color};border:2px solid white;box-shadow:0 0 8px ${color}80"></div>`
+        return `<div style="${base}background:${markerColor};border:2px solid white;box-shadow:0 0 8px ${markerColor}80"></div>`
     }
   })()
 
@@ -95,6 +103,12 @@ function ColorMarker({ r, estadoConsenso }) {
               🌡 {r.temp_c}°C {'  '} 💧 {r.humedad}% {'  '} 🌬 {r.viento_kmh} km/h {windDirLabel(r.viento_dir)}
             </div>
           )}
+          {esCuarentenaria && (
+            <p style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: '#a855f7',
+              background: '#a855f715', borderRadius: 4, padding: '3px 6px', border: '1px solid #a855f740' }}>
+              🟣 CUARENTENARIA — Notificar ICA
+            </p>
+          )}
           {estadoConsenso && (
             <p style={{
               marginBottom: 6,
@@ -109,6 +123,11 @@ function ColorMarker({ r, estadoConsenso }) {
                 confirmado:             '🔴 Plaga Confirmada por agrónomo',
                 descartado:             '⬛ Descartado',
               }[estadoConsenso] ?? estadoConsenso}
+            </p>
+          )}
+          {r.mip?.evaluacionEconomica?.estadoEconomico === 'plaga' && (
+            <p style={{ marginBottom: 4, fontSize: 11, color: '#ef4444', fontWeight: 600 }}>
+              💰 Supera NDE — pérdida estimada ${r.mip.evaluacionEconomica.perdidaEstimada?.toLocaleString('es-CO') ?? '?'}/ha
             </p>
           )}
           <p style={{ color: '#999', fontSize: 11, marginBottom: 2 }}>👤 {r.email_reportador}</p>
@@ -193,21 +212,22 @@ export default function Dashboard() {
     setAlertaAbierta(true)
   }, [reportes, geocercas])
 
-  // KPIs dinámicos
+  // KPIs dinámicos — basados en el estado de consenso real
   const hoy              = new Date().toDateString()
   const avistamientosHoy = reportes.filter(r => {
     const f = r.fecha?.toDate?.() ?? (r.fecha instanceof Date ? r.fecha : null)
     return f && f.toDateString() === hoy
   }).length
-  const alertasAltas  = reportes.filter(r => r.nivel === 'alto').length
   const fincasUnicas  = new Set(reportes.map(r => r.finca).filter(Boolean)).size
-  const zonasEnRiesgo = reportes.filter(r => r.nivel !== 'bajo').length
+  const alertasAltas  = reportes.filter(r => r.nivel === 'alto').length
 
+  // KPIs se calculan DESPUÉS de que estadosConsenso esté disponible (useMemo más abajo)
+  // Los usamos via closure en el render
   const stats = [
-    { label: 'Avistamientos Hoy',  value: avistamientosHoy, color: 'text-[#10b981]', icon: '🐛' },
-    { label: 'Alertas Activas',    value: alertasAltas,     color: 'text-red-400',    icon: '⚠️' },
-    { label: 'Fincas Reportando',  value: fincasUnicas,     color: 'text-blue-400',   icon: '🌾' },
-    { label: 'Zonas en Riesgo',    value: zonasEnRiesgo,    color: 'text-yellow-400', icon: '📍' },
+    { label: 'Registros Hoy',       value: avistamientosHoy,   color: 'text-[#10b981]', icon: '📋', hint: 'Evaluaciones MIP enviadas hoy' },
+    { label: 'Alertas en Mapa',     value: 0,                   color: 'text-orange-400', icon: '⚠️', dynamic: 'preventivas', hint: 'Visibles en el mapa — requieren atención' },
+    { label: 'Plagas Confirmadas',  value: 0,                   color: 'text-red-400',    icon: '🔴', dynamic: 'confirmadas', hint: 'Confirmadas por profesional agrónomo' },
+    { label: 'Fincas con Reporte',  value: fincasUnicas,        color: 'text-blue-400',   icon: '🌾', hint: 'Fincas que han enviado datos' },
   ]
 
   // HU-12 + HU-19: filtros (nivel, plaga, temporal)
@@ -322,23 +342,40 @@ export default function Dashboard() {
           </div>
         </header>
 
-        {/* ── KPIs ── */}
-        <div className="grid grid-cols-4 gap-4 px-6 py-4 shrink-0">
-          {stats.map(s => (
-            <div key={s.label} className="bg-[#161b22] border border-[#30363d] rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-lg">{s.icon}</span>
-                {s.label === 'Alertas Activas' && colisiones.length > 0 && (
-                  <span className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-1.5 rounded">
-                    {colisiones.length} colisión{colisiones.length > 1 ? 'es' : ''}
-                  </span>
-                )}
-              </div>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-[#8b949e] text-xs mt-0.5">{s.label}</p>
+        {/* ── KPIs — calculados sobre estadosConsenso en tiempo real ── */}
+        {(() => {
+          const countPreventivas = reportes.filter(r => estadosConsenso.get(r.id) === 'alerta_preventiva').length
+          const countConfirmadas = reportes.filter(r => estadosConsenso.get(r.id) === 'confirmado').length
+          const countObservaciones = reportes.filter(r => (estadosConsenso.get(r.id) ?? 'sospechoso') === 'sospechoso' && r.estado !== 'archivado').length
+
+          const kpis = [
+            { label: 'Evaluaciones Hoy',     value: avistamientosHoy,   color: 'text-[#10b981]', icon: '📋', note: 'reportes MIP recibidos' },
+            { label: 'Alertas en Mapa',      value: countPreventivas,   color: 'text-orange-400', icon: '🟠', note: 'requieren atención', highlight: countPreventivas > 0 },
+            { label: 'Confirmadas',          value: countConfirmadas,   color: 'text-red-400',    icon: '🔴', note: 'por agrónomo', highlight: countConfirmadas > 0 },
+            { label: 'En Monitoreo',         value: countObservaciones, color: 'text-[#8b949e]',  icon: '👁', note: 'observaciones activas' },
+          ]
+          return (
+            <div className="grid grid-cols-4 gap-4 px-6 py-4 shrink-0">
+              {kpis.map(s => (
+                <div key={s.label} className={`rounded-xl p-4 border transition-colors ${
+                  s.highlight ? 'bg-[#1c1812] border-orange-500/30' : 'bg-[#161b22] border-[#30363d]'
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-lg">{s.icon}</span>
+                    {s.label === 'Alertas en Mapa' && colisiones.length > 0 && (
+                      <span className="text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-1.5 py-0.5 rounded">
+                        {colisiones.length} geocerca{colisiones.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                  <p className="text-[#8b949e] text-xs mt-0.5">{s.label}</p>
+                  <p className="text-[#484f58] text-[10px] mt-0.5">{s.note}</p>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )
+        })()}
 
         {/* ── Contenido principal ── */}
         <div className="flex-1 flex gap-4 px-6 pb-6 overflow-hidden min-h-0">
@@ -404,9 +441,10 @@ export default function Dashboard() {
 
                   {/* Leyenda */}
                   <div className="flex items-center gap-3 text-xs text-[#8b949e]">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block opacity-50" />Sospechoso</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-1 ring-orange-400 inline-block" />Preventivo</span>
+                    <span className="text-[#484f58] text-[10px] border border-[#30363d] rounded px-1.5 py-0.5">Solo alertas activas</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 ring-1 ring-orange-400 inline-block" />Preventivo</span>
                     <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500 ring-2 ring-white inline-block" />Confirmado</span>
+                    <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-purple-500 ring-2 ring-white inline-block" />Cuarentenaria</span>
                   </div>
                 </div>
               </div>
@@ -510,14 +548,21 @@ export default function Dashboard() {
                 {/* HU-15: captura clics para dibujar */}
                 <MapClickHandler drawMode={drawMode} onMapClick={handleMapClick} />
 
-                {/* HU-10+11 + HU-CONSENSO: marcadores con estado de validación visual */}
-                {reportesFiltrados.map(r => (
-                  <ColorMarker
-                    key={r.id}
-                    r={r}
-                    estadoConsenso={estadosConsenso.get(r.id) ?? 'sospechoso'}
-                  />
-                ))}
+                {/* Solo se muestran reportes con estado alerta_preventiva o confirmado.
+                    Los reportes sospechosos (observaciones sin umbral superado) no
+                    aparecen en el mapa operacional — son datos de monitoreo, no alertas. */}
+                {reportesFiltrados
+                  .filter(r => {
+                    const e = estadosConsenso.get(r.id) ?? 'sospechoso'
+                    return e === 'alerta_preventiva' || e === 'confirmado'
+                  })
+                  .map(r => (
+                    <ColorMarker
+                      key={r.id}
+                      r={r}
+                      estadoConsenso={estadosConsenso.get(r.id)}
+                    />
+                  ))}
 
                 {/* HU-14: conos de dispersión */}
                 {showCones && <RiskConeLayer reportes={reportesFiltrados} />}
@@ -736,24 +781,31 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Avistamientos recientes */}
+            {/* Actividad reciente — con estado de consenso */}
             <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-4 flex-1 overflow-hidden">
-              <h3 className="font-semibold text-sm text-white mb-3">Avistamientos Recientes</h3>
-              <div className="space-y-0 overflow-y-auto max-h-48">
-                {reportes.slice(0, 10).map(r => (
-                  <div key={r.id} className="flex items-start gap-2 py-2 border-b border-[#21262d] last:border-0">
-                    <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: nivelColor[r.nivel] ?? '#8b949e' }} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[#c9d1d9] text-xs font-medium truncate">{r.plaga}</p>
-                      <p className="text-[#484f58] text-xs truncate">{r.finca}</p>
+              <h3 className="font-semibold text-sm text-white mb-1">Actividad Reciente</h3>
+              <p className="text-[#484f58] text-[10px] mb-3">Todos los registros MIP recibidos</p>
+              <div className="space-y-0 overflow-y-auto max-h-52">
+                {reportes.slice(0, 12).map(r => {
+                  const ev = estadosConsenso.get(r.id) ?? 'sospechoso'
+                  const evColor = ESTADO_COLOR[ev] ?? '#8b949e'
+                  const evLabel = { sospechoso: 'Monitoreo', alerta_preventiva: 'Alerta', confirmado: 'Confirmado', descartado: 'Descartado' }[ev] ?? ev
+                  return (
+                    <div key={r.id} className="flex items-start gap-2 py-2 border-b border-[#21262d] last:border-0">
+                      <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: evColor }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[#c9d1d9] text-xs font-medium truncate">{r.plaga}</p>
+                        <p className="text-[#484f58] text-[10px] truncate">{r.finca}</p>
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded border shrink-0 font-medium"
+                        style={{ color: evColor, borderColor: evColor + '40', background: evColor + '15' }}>
+                        {evLabel}
+                      </span>
                     </div>
-                    <span className={`text-xs px-1.5 py-0.5 rounded border shrink-0 ${nivelBg[r.nivel] ?? ''}`}>
-                      {r.nivel}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
                 {reportes.length === 0 && (
-                  <p className="text-[#484f58] text-xs text-center py-6">Sin avistamientos aún</p>
+                  <p className="text-[#484f58] text-xs text-center py-6">Sin registros MIP aún</p>
                 )}
               </div>
             </div>

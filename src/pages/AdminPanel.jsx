@@ -210,6 +210,150 @@ function ModalDetalle({ reporte, estadoConsenso, onClose, onConfirmar, onDescart
                   : reporte.mip.nivelCalculado === 'medio' ? 'text-yellow-400' : 'text-green-400'
                 }`}>{(reporte.mip.nivelCalculado ?? reporte.nivel ?? '—').toUpperCase()}</span>
               </p>
+
+              {/* Estadio biológico + distribución espacial */}
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#21262d]">
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Estadio biológico</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium capitalize">{reporte.mip.estadioBiologico ?? '—'}</p>
+                </div>
+                <div>
+                  <p className="text-[#484f58] text-[10px]">Distribución espacial</p>
+                  <p className="text-[#c9d1d9] text-xs font-medium capitalize">{reporte.mip.distribucionEspacial ?? '—'}</p>
+                </div>
+                {reporte.mip.densidadPoblacional != null && (
+                  <div className="col-span-2">
+                    <p className="text-[#484f58] text-[10px]">Densidad poblacional</p>
+                    <p className="text-[#c9d1d9] text-xs font-medium">
+                      {reporte.mip.densidadPoblacional} individuos/{reporte.mip.unidadMuestreo ?? 'planta'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Clasificación ICA */}
+              {reporte.mip.clasificacionICA && reporte.mip.clasificacionICA !== 'desconocida' && (
+                <div className={`rounded-lg px-3 py-2 border text-xs mt-1 ${
+                  reporte.mip.clasificacionICA.startsWith('cuarentenaria')
+                    ? 'border-purple-500/40 bg-purple-500/10'
+                    : 'border-[#30363d] bg-[#0d1117]'
+                }`}>
+                  <p className="text-[#484f58] text-[10px] mb-0.5">Clasificación ICA (Res. 3593/2015)</p>
+                  <p className={`font-semibold ${
+                    reporte.mip.clasificacionICA.startsWith('cuarentenaria') ? 'text-purple-400'
+                    : reporte.mip.clasificacionICA === 'no_cuarentenaria_reglamentada' ? 'text-yellow-400'
+                    : 'text-[#c9d1d9]'
+                  }`}>
+                    {reporte.mip.clasificacionICA.startsWith('cuarentenaria') && '🟣 '}
+                    {reporte.mip.clasificacionICA.replace(/_/g, ' ')}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Evaluación Económica NDE */}
+          {reporte.mip?.evaluacionEconomica && (() => {
+            const eco = reporte.mip.evaluacionEconomica
+            const esPlaga = eco.estadoEconomico === 'plaga'
+            const esUmbral = eco.estadoEconomico === 'umbral'
+            return (
+              <div className={`bg-[#0d1117] rounded-lg p-3 border ${
+                esPlaga  ? 'border-red-500/30'
+                : esUmbral ? 'border-yellow-500/30'
+                : 'border-[#30363d]'
+              }`}>
+                <p className={`text-xs font-semibold mb-3 ${
+                  esPlaga ? 'text-red-400' : esUmbral ? 'text-yellow-400' : 'text-[#484f58]'
+                }`}>
+                  💰 Evaluación Económica NDE (ICA Colombia)
+                  <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    esPlaga  ? 'bg-red-500/20 text-red-400'
+                    : esUmbral ? 'bg-yellow-500/20 text-yellow-400'
+                    : 'bg-green-500/20 text-green-400'
+                  }`}>
+                    {esPlaga ? '⚠️ PLAGA ECONÓMICA' : esUmbral ? '⚡ EN UMBRAL' : '✓ Bajo umbral'}
+                  </span>
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 text-xs mb-3">
+                  <div className="bg-[#161b22] rounded p-2">
+                    <p className="text-[#484f58] text-[10px]">NDE (Umbral de Daño)</p>
+                    <p className="text-white font-bold text-sm">{eco.nde ?? '—'}%</p>
+                    <p className="text-[#484f58] text-[10px]">de incidencia</p>
+                  </div>
+                  <div className="bg-[#161b22] rounded p-2">
+                    <p className="text-[#484f58] text-[10px]">Umbral de Acción (75%)</p>
+                    <p className="text-yellow-400 font-bold text-sm">{eco.umbralAccion ?? '—'}%</p>
+                    <p className="text-[#484f58] text-[10px]">intervenir antes de aquí</p>
+                  </div>
+                  <div className="bg-[#161b22] rounded p-2">
+                    <p className="text-[#484f58] text-[10px]">Pérdida estimada/ha</p>
+                    <p className={`font-bold text-sm ${esPlaga ? 'text-red-400' : 'text-[#c9d1d9]'}`}>
+                      ${eco.perdidaEstimada != null ? eco.perdidaEstimada.toLocaleString('es-CO') : '—'}
+                    </p>
+                    <p className="text-[#484f58] text-[10px]">COP/ha</p>
+                  </div>
+                  <div className="bg-[#161b22] rounded p-2">
+                    <p className="text-[#484f58] text-[10px]">Ratio Beneficio/Costo</p>
+                    <p className={`font-bold text-sm ${
+                      (eco.ratioBenefCosto ?? 0) >= 1 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {eco.ratioBenefCosto != null ? eco.ratioBenefCosto.toFixed(2) : '—'}
+                    </p>
+                    <p className="text-[#484f58] text-[10px]">
+                      {(eco.ratioBenefCosto ?? 0) >= 1 ? 'Intervención rentable' : 'No rentable aún'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Barra incidencia vs NDE */}
+                {eco.nde != null && reporte.mip?.incidencia_pct != null && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[10px] text-[#484f58]">
+                      <span>Incidencia actual: <strong className="text-white">{reporte.mip.incidencia_pct}%</strong></span>
+                      <span>NDE: <strong className="text-white">{eco.nde}%</strong></span>
+                    </div>
+                    <div className="relative h-3 bg-[#21262d] rounded-full overflow-hidden">
+                      {/* Barra de incidencia */}
+                      <div
+                        className="absolute top-0 left-0 h-full rounded-full transition-all"
+                        style={{
+                          width: `${Math.min(100, (reporte.mip.incidencia_pct / Math.max(eco.nde, reporte.mip.incidencia_pct, 1)) * 100)}%`,
+                          background: esPlaga ? '#ef4444' : esUmbral ? '#f59e0b' : '#10b981',
+                        }}
+                      />
+                      {/* Línea umbral de acción */}
+                      {eco.umbralAccion != null && (
+                        <div
+                          className="absolute top-0 h-full w-0.5 bg-yellow-400 opacity-80"
+                          style={{ left: `${Math.min(100, (eco.umbralAccion / Math.max(eco.nde, reporte.mip.incidencia_pct, 1)) * 100)}%` }}
+                        />
+                      )}
+                    </div>
+                    <p className="text-[#484f58] text-[10px]">
+                      Fórmula NDE: C / (V × D × K) — ICA Colombia
+                    </p>
+                  </div>
+                )}
+
+                {eco.decision && (
+                  <p className={`text-xs mt-2 pt-2 border-t border-[#21262d] font-medium ${
+                    esPlaga ? 'text-red-400' : esUmbral ? 'text-yellow-400' : 'text-green-400'
+                  }`}>
+                    📋 {eco.decision}
+                  </p>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Placeholder para reportes sin evaluación económica */}
+          {reporte.mip && !reporte.mip.evaluacionEconomica && (
+            <div className="bg-[#0d1117] rounded-lg p-3 border border-dashed border-[#30363d]">
+              <p className="text-[#484f58] text-xs text-center">
+                💰 Sin evaluación económica NDE registrada
+              </p>
             </div>
           )}
 
@@ -472,13 +616,14 @@ export default function AdminPanel() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#30363d] text-[#8b949e] text-xs">
-                <th className="text-left px-4 py-3">Plaga</th>
+                <th className="text-left px-4 py-3">Plaga / Organismo</th>
                 <th className="text-left px-4 py-3">Finca</th>
-                <th className="text-left px-4 py-3">Nivel</th>
+                <th className="text-left px-4 py-3">Veredicto NDE</th>
+                <th className="text-left px-4 py-3">Incidencia</th>
                 <th className="text-left px-4 py-3">Reportado por</th>
                 <th className="text-left px-4 py-3">Fecha</th>
                 <th className="text-left px-4 py-3">Foto</th>
-                <th className="text-left px-4 py-3">Validación</th>
+                <th className="text-left px-4 py-3">Estado</th>
                 <th className="text-left px-4 py-3">Acción</th>
               </tr>
             </thead>
@@ -495,15 +640,45 @@ export default function AdminPanel() {
                 const enCurso   = archivando.has(r.id)
                 const ev        = estadosConsenso.get(r.id) ?? 'sospechoso'
                 const enVal     = validando.has(r.id)
+                const ecoEstado = r.mip?.evaluacionEconomica?.estadoEconomico
+                const incPct    = r.mip?.incidencia_pct
+                const nde       = r.mip?.evaluacionEconomica?.nde
                 return (
                   <tr key={r.id}
                     className={`border-b border-[#21262d] hover:bg-[#1c2128] transition-colors ${archivado ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3 text-[#c9d1d9] font-medium">{r.plaga}</td>
-                    <td className="px-4 py-3 text-[#8b949e]">{r.finca}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs capitalize ${nivelBadge[r.nivel]}`}>
-                        {r.nivel}
-                      </span>
+                      <p className="text-[#c9d1d9] font-medium text-sm">{r.plaga}</p>
+                      {r.mip?.tipoOrganismo && (
+                        <p className="text-[#484f58] text-[10px] mt-0.5">{r.mip.tipoOrganismo} · {r.mip.cultivo ?? '—'}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[#8b949e] text-sm">{r.finca}</td>
+                    <td className="px-4 py-3">
+                      {ecoEstado ? (
+                        <span className={`px-2 py-1 rounded text-[10px] font-semibold ${
+                          ecoEstado === 'plaga'      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                          : ecoEstado === 'vigilancia' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                          : 'bg-green-500/20 text-green-400 border border-green-500/30'
+                        }`}>
+                          {ecoEstado === 'plaga' ? '🔴 Plaga' : ecoEstado === 'vigilancia' ? '🟡 Vigilancia' : '🟢 Bajo umbral'}
+                        </span>
+                      ) : (
+                        <span className="text-[#484f58] text-xs">Sin NDE</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {incPct != null ? (
+                        <div>
+                          <span className={`text-sm font-bold ${incPct >= (nde ?? 100) ? 'text-red-400' : incPct >= (nde ?? 100) * 0.75 ? 'text-yellow-400' : 'text-green-400'}`}>
+                            {incPct}%
+                          </span>
+                          {nde != null && (
+                            <p className="text-[#484f58] text-[10px]">NDE: {nde}%</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[#484f58] text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[#8b949e] text-xs truncate max-w-[130px]">
                       {r.email_reportador}

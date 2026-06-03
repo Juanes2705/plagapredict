@@ -12,10 +12,18 @@
  *   'alerta_preventiva' 🟠 Cluster con suficientes reportes (Fase 2)
  *   'confirmado'        🔴 Confirmado SOLO por Agrónomo/Profesional (Fase 3)
  *   'descartado'        ⬛ Descartado por Admin (falso positivo)
+ *   'cuarentenaria'     🟣 Plaga cuarentenaria — alerta inmediata sin esperar consenso
  *
  * IMPORTANTE: La Fase 3 (confirmado) NUNCA se asigna automáticamente.
  * Solo un profesional/admin puede confirmar una plaga mediante el panel.
+ *
+ * EXCEPCIÓN CUARENTENARIA (ICA Res. 3593/2015):
+ * Si el reporte corresponde a una plaga cuarentenaria, pasa directamente a
+ * 'alerta_preventiva' sin esperar el mínimo de reportes. El ICA exige
+ * notificación inmediata ante cualquier sospecha de plaga cuarentenaria.
  */
+
+import { esCuarentenaria } from './plagasEconomia.js'
 
 export const CONSENSUS_CONFIG = {
   radioKm:      5,   // Y — radio espacial para agrupar reportes
@@ -66,6 +74,23 @@ export function calcularEstadosConsenso(reportes, config = CONSENSUS_CONFIG) {
 
     if (!r.lat || !r.lng) {
       estados.set(r.id, 'sospechoso')
+      continue
+    }
+
+    // ── EXCEPCIÓN CUARENTENARIA (ICA Res. 3593/2015) ──────────────────────
+    // Una plaga cuarentenaria pasa directamente a alerta sin esperar consenso.
+    const clasificacionICA = r.mip?.clasificacionICA ?? r.clasificacionICA ?? 'desconocida'
+    if (esCuarentenaria(clasificacionICA)) {
+      estados.set(r.id, 'alerta_preventiva')
+      continue
+    }
+
+    // ── EXCEPCIÓN NDE: si la evaluación económica confirma que es plaga, escalar ──
+    // El veredicto económico (incidencia ≥ NDE) tiene prioridad sobre el consenso
+    // espacial. No se necesitan 3 reportes vecinos si la pérdida ya está cuantificada.
+    const estadoEco = r.mip?.evaluacionEconomica?.estadoEconomico
+    if (estadoEco === 'plaga') {
+      estados.set(r.id, 'alerta_preventiva')
       continue
     }
 
@@ -145,6 +170,7 @@ export const ESTADO_LABEL = {
   alerta_preventiva: '🟠 Alerta Preventiva',
   confirmado:        '🔴 Confirmado por Profesional',
   descartado:        '⬛ Descartado',
+  cuarentenaria:     '🟣 Cuarentenaria — Notificar ICA',
 }
 
 export const ESTADO_COLOR = {
@@ -152,4 +178,5 @@ export const ESTADO_COLOR = {
   alerta_preventiva: '#f97316',
   confirmado:        '#ef4444',
   descartado:        '#6b7280',
+  cuarentenaria:     '#a855f7',
 }

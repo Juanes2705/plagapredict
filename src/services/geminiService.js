@@ -12,22 +12,40 @@ const HF_KEY     = import.meta.env.VITE_HF_API_KEY     ?? ''
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? ''
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
-// Prompt actualizado con criterios MIP / ICA Colombia
+/**
+ * Prompt MIP completo — ICA Colombia
+ *
+ * La IA devuelve un JSON con TODOS los campos necesarios para el formulario MIP,
+ * reduciendo al mínimo la entrada manual del técnico de campo.
+ * El técnico confirma o corrige; no parte de cero.
+ */
 const PROMPT =
-  'Eres un experto fitosanitario de Colombia (Valle del Cauca), especializado en Manejo Integrado de Plagas (MIP) según los criterios del ICA.\n' +
-  'Analiza la imagen e identifica el organismo plaga o enfermedad vegetal.\n\n' +
+  'Eres un experto fitosanitario de Colombia (Valle del Cauca), especializado en Manejo Integrado de Plagas (MIP) según el ICA.\n' +
+  'Analiza la imagen e identifica el organismo plaga o enfermedad vegetal con el máximo detalle técnico posible.\n\n' +
   'Responde ÚNICAMENTE con este objeto JSON (sin markdown, sin texto extra):\n' +
-  '{"nombreComun":"...","nombreCientifico":"...","tipoOrganismo":"...","porcentajeConfianza":0,"descripcionDano":"..."}\n\n' +
-  'Reglas:\n' +
-  '- nombreComun: nombre común en español\n' +
-  '- nombreCientifico: nombre científico (binomial)\n' +
-  '- tipoOrganismo: UNO de estos valores exactos según clasificación ICA: "Insecto", "Ácaro", "Nematodo", "Hongo", "Bacteria", "Virus", "Maleza", "Otro"\n' +
-  '- porcentajeConfianza: número entero 0-100\n' +
-  '- descripcionDano: síntomas que causa en el cultivo (máx 2 oraciones)\n' +
-  '- Plaga claramente visible → porcentajeConfianza 70-100\n' +
-  '- Imagen borrosa o dudosa → porcentajeConfianza 30-69\n' +
-  '- Sin plaga visible → nombreComun "No identificado", nombreCientifico "—", tipoOrganismo "Otro", porcentajeConfianza 0\n' +
-  '- Todo en español colombiano'
+  '{\n' +
+  '  "nombreComun": "...",\n' +
+  '  "nombreCientifico": "...",\n' +
+  '  "tipoOrganismo": "...",\n' +
+  '  "estadioBiologico": "...",\n' +
+  '  "parteAfectadaSugerida": ["..."],\n' +
+  '  "severidadSugerida": 0,\n' +
+  '  "cultivoProbable": "...",\n' +
+  '  "porcentajeConfianza": 0,\n' +
+  '  "descripcionDano": "..."\n' +
+  '}\n\n' +
+  'Reglas por campo:\n' +
+  '- nombreComun: nombre común de la plaga en español colombiano\n' +
+  '- nombreCientifico: nombre científico binomial (género especie)\n' +
+  '- tipoOrganismo: EXACTAMENTE uno de: "Insecto", "Ácaro", "Nematodo", "Hongo", "Bacteria", "Virus", "Maleza", "Otro"\n' +
+  '- estadioBiologico: EXACTAMENTE uno de: "huevo", "larva", "ninfa", "pupa", "adulto", "micelio", "mixto"\n' +
+  '- parteAfectadaSugerida: array con los que apliquen de: ["hoja", "tallo", "raiz", "fruto", "flor", "planta_entera"]\n' +
+  '- severidadSugerida: entero 1-4 (1=<10% tejido dañado, 2=10-30%, 3=30-60%, 4=>60%). Estima por lo visible en imagen. 0 si no se puede estimar.\n' +
+  '- cultivoProbable: nombre del cultivo si es visible en la imagen, o null si no se identifica\n' +
+  '- porcentajeConfianza: entero 0-100 (plaga clara→70-100, borrosa→30-69, sin plaga→0)\n' +
+  '- descripcionDano: 1-2 oraciones técnicas sobre los daños que causa esta plaga en el cultivo hospedante\n' +
+  '- Si NO hay plaga visible: nombreComun="No identificado", nombreCientifico="—", tipoOrganismo="Otro", estadioBiologico="adulto", parteAfectadaSugerida=[], severidadSugerida=0, porcentajeConfianza=0\n' +
+  '- NUNCA uses markdown, solo JSON puro'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 function parsearJSON(text) {
@@ -39,11 +57,17 @@ function parsearJSON(text) {
 
 function normalizarRespuesta(parsed, modeloUsado) {
   return {
-    nombreComun:         String(parsed.nombreComun         ?? 'No identificado'),
-    nombreCientifico:    String(parsed.nombreCientifico    ?? '—'),
-    tipoOrganismo:       parsed.tipoOrganismo ? String(parsed.tipoOrganismo) : undefined,
-    porcentajeConfianza: Math.max(0, Math.min(100, Math.round(Number(parsed.porcentajeConfianza ?? 0)))),
-    descripcionDano:     parsed.descripcionDano ? String(parsed.descripcionDano) : undefined,
+    nombreComun:           String(parsed.nombreComun         ?? 'No identificado'),
+    nombreCientifico:      String(parsed.nombreCientifico    ?? '—'),
+    tipoOrganismo:         parsed.tipoOrganismo         ? String(parsed.tipoOrganismo)         : undefined,
+    estadioBiologico:      parsed.estadioBiologico      ? String(parsed.estadioBiologico)      : undefined,
+    parteAfectadaSugerida: Array.isArray(parsed.parteAfectadaSugerida) ? parsed.parteAfectadaSugerida : [],
+    severidadSugerida:     parsed.severidadSugerida > 0
+                             ? Math.max(1, Math.min(4, Math.round(Number(parsed.severidadSugerida))))
+                             : undefined,
+    cultivoProbable:       parsed.cultivoProbable ? String(parsed.cultivoProbable) : undefined,
+    porcentajeConfianza:   Math.max(0, Math.min(100, Math.round(Number(parsed.porcentajeConfianza ?? 0)))),
+    descripcionDano:       parsed.descripcionDano ? String(parsed.descripcionDano) : undefined,
     modeloUsado,
   }
 }
